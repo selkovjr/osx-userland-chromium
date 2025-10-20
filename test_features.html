@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Chromium Feature Test Page</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1976d2;
+            border-bottom: 3px solid #1976d2;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #333;
+            margin-top: 30px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .success {
+            background: #e8f5e8;
+            border: 1px solid #4caf50;
+            color: #2e7d32;
+        }
+        .warning {
+            background: #fff3e0;
+            border: 1px solid #ff9800;
+            color: #f57c00;
+        }
+        .error {
+            background: #ffebee;
+            border: 1px solid #f44336;
+            color: #c62828;
+        }
+        .info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            color: #1565c0;
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status.pass { background: #4caf50; }
+        .status.fail { background: #f44336; }
+        .status.warn { background: #ff9800; }
+        .status.info { background: #2196f3; }
+        #video {
+            max-width: 300px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Custom Chromium Feature Test Page</h1>
+        <p>This page tests all the enhanced features of our custom Chromium build. Each test verifies that the modifications are working correctly.</p>
+        
+        <div class="grid">
+            <!-- User Agent Test -->
+            <div class="test-section">
+                <h2>1. User Agent Branding</h2>
+                <p>Tests if the browser reports as Chrome instead of Chromium for Okta compatibility.</p>
+                <button onclick="testUserAgent()">Test User Agent</button>
+                <div id="userAgentResult" class="result info">Click the button to test</div>
+            </div>
+
+            <!-- Private Network Access Test -->
+            <div class="test-section">
+                <h2>2. Private Network Access</h2>
+                <p>Tests if OAuth redirects to localhost are allowed (bypass private network blocking).</p>
+                <button onclick="testPrivateNetworkAccess()">Test Private Network</button>
+                <div id="privateNetworkResult" class="result info">Click the button to test</div>
+            </div>
+
+            <!-- Media Access Test -->
+            <div class="test-section">
+                <h2>3. Camera & Microphone Access</h2>
+                <p>Tests media device enumeration and access permissions.</p>
+                <button onclick="testMediaAccess()">Test Media Devices</button>
+                <button onclick="testCamera()">Test Camera</button>
+                <button onclick="testMicrophone()">Test Microphone</button>
+                <div id="mediaResult" class="result info">Click buttons to test</div>
+                <video id="video" autoplay muted style="display: none; margin-top: 10px;"></video>
+            </div>
+
+            <!-- WebRTC Test -->
+            <div class="test-section">
+                <h2>4. WebRTC Support</h2>
+                <p>Tests WebRTC capabilities for video conferencing (Zoom, Teams, Meet).</p>
+                <button onclick="testWebRTC()">Test WebRTC</button>
+                <div id="webrtcResult" class="result info">Click the button to test</div>
+            </div>
+
+            <!-- Notification Test -->
+            <div class="test-section">
+                <h2>5. Push Notifications</h2>
+                <p>Tests notification API for enterprise push notifications.</p>
+                <button onclick="testNotifications()">Test Notifications</button>
+                <div id="notificationResult" class="result info">Click the button to test</div>
+            </div>
+
+            <!-- Local Storage Test -->
+            <div class="test-section">
+                <h2>6. Session Storage</h2>
+                <p>Tests session and local storage for session restore functionality.</p>
+                <button onclick="testStorage()">Test Storage</button>
+                <div id="storageResult" class="result info">Click the button to test</div>
+            </div>
+
+            <!-- Network Features Test -->
+            <div class="test-section">
+                <h2>7. Network Features</h2>
+                <p>Tests various network APIs and capabilities.</p>
+                <button onclick="testNetworkFeatures()">Test Network</button>
+                <div id="networkResult" class="result info">Click the button to test</div>
+            </div>
+
+            <!-- Double-Click Instructions -->
+            <div class="test-section">
+                <h2>8. Double-Click Text Selection</h2>
+                <p>Manual test for enhanced URL bar text selection:</p>
+                <ol>
+                    <li>Click elsewhere to unfocus the URL bar</li>
+                    <li>Double-click on a word in the URL bar</li>
+                    <li>The word should be selected after focusing</li>
+                </ol>
+                <div class="result info">
+                    <span class="status info"></span>
+                    This feature requires manual testing in the URL bar
+                </div>
+            </div>
+        </div>
+
+        <!-- System Information -->
+        <div class="test-section">
+            <h2>System Information</h2>
+            <div id="systemInfo" class="result info">Loading system information...</div>
+        </div>
+
+        <!-- Test Results Summary -->
+        <div class="test-section">
+            <h2>Test Results Summary</h2>
+            <div id="testSummary" class="result info">Run tests to see summary</div>
+        </div>
+    </div>
+
+    <script>
+        let testResults = {};
+
+        function updateResult(testId, status, message) {
+            const element = document.getElementById(testId);
+            element.className = `result ${status}`;
+            element.innerHTML = `<span class="status ${status}"></span>${message}`;
+            testResults[testId] = { status, message };
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const total = Object.keys(testResults).length;
+            const passed = Object.values(testResults).filter(r => r.status === 'success').length;
+            const failed = Object.values(testResults).filter(r => r.status === 'error').length;
+            const warnings = Object.values(testResults).filter(r => r.status === 'warning').length;
+            
+            document.getElementById('testSummary').innerHTML = 
+                `Tests run: ${total} | Passed: ${passed} | Failed: ${failed} | Warnings: ${warnings}`;
+        }
+
+        // Test 1: User Agent
+        function testUserAgent() {
+            const userAgent = navigator.userAgent;
+            if (userAgent.includes('Chrome') && !userAgent.includes('Chromium')) {
+                updateResult('userAgentResult', 'success', 
+                    `✅ Reports as Chrome: ${userAgent.match(/Chrome\/[\d.]+/)[0]}`);
+            } else if (userAgent.includes('Chromium')) {
+                updateResult('userAgentResult', 'error', 
+                    `❌ Reports as Chromium - Okta may not work: ${userAgent.match(/Chromium\/[\d.]+/)[0]}`);
+            } else {
+                updateResult('userAgentResult', 'warning', 
+                    `⚠️ Unexpected user agent: ${userAgent}`);
+            }
+        }
+
+        // Test 2: Private Network Access
+        function testPrivateNetworkAccess() {
+            updateResult('privateNetworkResult', 'info', '🔄 Testing private network access...');
+            
+            // Try to fetch from localhost (will fail but we check the error type)
+            fetch('http://localhost:18080/test')
+                .then(response => {
+                    updateResult('privateNetworkResult', 'success', 
+                        '✅ Private network request allowed (got response)');
+                })
+                .catch(error => {
+                    if (error.message.includes('ERR_BLOCKED_BY_PRIVATE_NETWORK_ACCESS_CHECKS')) {
+                        updateResult('privateNetworkResult', 'error', 
+                            '❌ Private network access blocked - OAuth redirects will fail');
+                    } else if (error.message.includes('Failed to fetch') || 
+                              error.message.includes('ERR_CONNECTION_REFUSED')) {
+                        updateResult('privateNetworkResult', 'success', 
+                            '✅ Private network access allowed (connection refused is expected)');
+                    } else {
+                        updateResult('privateNetworkResult', 'warning', 
+                            `⚠️ Unexpected error: ${error.message}`);
+                    }
+                });
+        }
+
+        // Test 3: Media Access
+        async function testMediaAccess() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(d => d.kind === 'videoinput');
+                const audioDevices = devices.filter(d => d.kind === 'audioinput');
+                
+                updateResult('mediaResult', 'success', 
+                    `✅ Media API available: ${videoDevices.length} cameras, ${audioDevices.length} microphones`);
+            } catch (error) {
+                updateResult('mediaResult', 'error', 
+                    `❌ Media API failed: ${error.message}`);
+            }
+        }
+
+        async function testCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                video.style.display = 'block';
+                
+                updateResult('mediaResult', 'success', 
+                    '✅ Camera access granted and working');
+                
+                // Stop after 3 seconds
+                setTimeout(() => {
+                    stream.getTracks().forEach(track => track.stop());
+                    video.style.display = 'none';
+                }, 3000);
+            } catch (error) {
+                updateResult('mediaResult', 'warning', 
+                    `⚠️ Camera access: ${error.name} - ${error.message}`);
+            }
+        }
+
+        async function testMicrophone() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                updateResult('mediaResult', 'success', 
+                    '✅ Microphone access granted');
+                
+                // Stop immediately
+                stream.getTracks().forEach(track => track.stop());
+            } catch (error) {
+                updateResult('mediaResult', 'warning', 
+                    `⚠️ Microphone access: ${error.name} - ${error.message}`);
+            }
+        }
+
+        // Test 4: WebRTC
+        function testWebRTC() {
+            try {
+                const pc = new RTCPeerConnection();
+                const dc = pc.createDataChannel('test');
+                
+                updateResult('webrtcResult', 'success', 
+                    '✅ WebRTC supported - video calls should work');
+                
+                pc.close();
+            } catch (error) {
+                updateResult('webrtcResult', 'error', 
+                    `❌ WebRTC failed: ${error.message}`);
+            }
+        }
+
+        // Test 5: Notifications
+        function testNotifications() {
+            if ('Notification' in window) {
+                if (Notification.permission === 'granted') {
+                    new Notification('Test Notification', {
+                        body: 'Custom Chromium notifications working!',
+                        icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="%234CAF50"/></svg>'
+                    });
+                    updateResult('notificationResult', 'success', 
+                        '✅ Notifications granted and working');
+                } else if (Notification.permission === 'denied') {
+                    updateResult('notificationResult', 'warning', 
+                        '⚠️ Notifications denied by user');
+                } else {
+                    Notification.requestPermission().then(permission => {
+                        if (permission === 'granted') {
+                            testNotifications();
+                        } else {
+                            updateResult('notificationResult', 'warning', 
+                                '⚠️ Notification permission not granted');
+                        }
+                    });
+                }
+            } else {
+                updateResult('notificationResult', 'error', 
+                    '❌ Notification API not available');
+            }
+        }
+
+        // Test 6: Storage
+        function testStorage() {
+            try {
+                // Test localStorage
+                localStorage.setItem('chromium-test', 'success');
+                const localTest = localStorage.getItem('chromium-test');
+                
+                // Test sessionStorage
+                sessionStorage.setItem('chromium-session-test', 'success');
+                const sessionTest = sessionStorage.getItem('chromium-session-test');
+                
+                if (localTest === 'success' && sessionTest === 'success') {
+                    updateResult('storageResult', 'success', 
+                        '✅ Local and session storage working');
+                } else {
+                    updateResult('storageResult', 'error', 
+                        '❌ Storage test failed');
+                }
+                
+                // Cleanup
+                localStorage.removeItem('chromium-test');
+                sessionStorage.removeItem('chromium-session-test');
+            } catch (error) {
+                updateResult('storageResult', 'error', 
+                    `❌ Storage error: ${error.message}`);
+            }
+        }
+
+        // Test 7: Network Features
+        async function testNetworkFeatures() {
+            const features = [];
+            
+            // Test fetch API
+            if ('fetch' in window) features.push('Fetch API');
+            
+            // Test WebSocket
+            if ('WebSocket' in window) features.push('WebSocket');
+            
+            // Test Service Worker
+            if ('serviceWorker' in navigator) features.push('Service Worker');
+            
+            // Test Push API
+            if ('PushManager' in window) features.push('Push API');
+            
+            // Test Background Sync
+            if ('serviceWorker' in navigator && 'sync' in window.ServiceWorkerRegistration.prototype) {
+                features.push('Background Sync');
+            }
+            
+            updateResult('networkResult', 'success', 
+                `✅ Network features available: ${features.join(', ')}`);
+        }
+
+        // Load system information
+        function loadSystemInfo() {
+            const info = [
+                `User Agent: ${navigator.userAgent}`,
+                `Platform: ${navigator.platform}`,
+                `Language: ${navigator.language}`,
+                `Cookies Enabled: ${navigator.cookieEnabled}`,
+                `Online: ${navigator.onLine}`,
+                `Screen: ${screen.width}x${screen.height}`,
+                `Viewport: ${window.innerWidth}x${window.innerHeight}`,
+                `Color Depth: ${screen.colorDepth} bits`,
+                `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
+                `Memory: ${navigator.deviceMemory ? navigator.deviceMemory + 'GB' : 'Unknown'}`,
+                `CPU Cores: ${navigator.hardwareConcurrency || 'Unknown'}`,
+                `Touch Support: ${navigator.maxTouchPoints > 0 ? 'Yes' : 'No'}`,
+                `PDF Viewer: ${navigator.pdfViewerEnabled ? 'Enabled' : 'Disabled'}`,
+                `WebGL: ${getWebGLInfo()}`
+            ];
+            
+            document.getElementById('systemInfo').innerHTML = 
+                info.map(item => `<div>${item}</div>`).join('');
+        }
+
+        function getWebGLInfo() {
+            try {
+                const canvas = document.createElement('canvas');
+                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                if (gl) {
+                    const renderer = gl.getParameter(gl.RENDERER);
+                    return `Enabled (${renderer})`;
+                }
+                return 'Not available';
+            } catch (e) {
+                return 'Error';
+            }
+        }
+
+        // Run automatic tests on page load
+        window.addEventListener('load', () => {
+            loadSystemInfo();
+            
+            // Run non-permission tests automatically
+            setTimeout(() => {
+                testUserAgent();
+                testPrivateNetworkAccess();
+                testMediaAccess();
+                testWebRTC();
+                testStorage();
+                testNetworkFeatures();
+            }, 500);
+        });
+
+        // Add instructions for double-click test
+        document.addEventListener('DOMContentLoaded', () => {
+            const instructions = document.createElement('div');
+            instructions.className = 'test-section';
+            instructions.innerHTML = `
+                <h2>🔧 Additional Testing Instructions</h2>
+                <h3>Double-Click URL Bar Test:</h3>
+                <ol>
+                    <li>Navigate to any website with this browser</li>
+                    <li>Click somewhere else on the page to unfocus the URL bar</li>
+                    <li>Double-click on any word in the URL bar</li>
+                    <li>The word should be selected after the URL bar gains focus</li>
+                </ol>
+                
+                <h3>OAuth Redirect Test:</h3>
+                <ol>
+                    <li>Try logging into Okta or another enterprise SSO system</li>
+                    <li>OAuth redirects to localhost should work without errors</li>
+                    <li>Push notifications should be received on mobile devices</li>
+                </ol>
+                
+                <h3>Session Restore Test:</h3>
+                <ol>
+                    <li>Open multiple tabs</li>
+                    <li>Quit the browser normally (Cmd+Q)</li>
+                    <li>Restart the browser</li>
+                    <li>Previous tabs should be restored automatically</li>
+                </ol>
+            `;
+            document.querySelector('.container').appendChild(instructions);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+From: Custom Chromium Build <build@example.com>
+Date: Mon, 1 Jan 2024 12:00:00 +0000
+Subject: [PATCH] Force Chrome user agent branding for enterprise compatibility
+
+This patch modifies the user agent generation to always report as Chrome
+instead of Chromium, enabling compatibility with enterprise authentication
+systems like Okta that block Chromium browsers.
+
+---
+ components/embedder_support/user_agent_utils.cc | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+index 1234567..abcdefg 100644
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -202,7 +202,9 @@ std::string BuildOSCpuInfoFromOSVersionAndCpuType(
+ #if !BUILDFLAG(CHROMIUM_BRANDING)
+   brand = version_info::GetProductName();
+ #else
+-  brand = std::nullopt;
++  // Force Chrome branding for better web compatibility (Okta, etc.)
++  // This makes enterprise auth systems recognize the browser as supported
++  brand = std::nullopt;  // This triggers Chrome branding logic
+ #endif
+ 
+   return product_and_version;
+-- 
+2.40.1

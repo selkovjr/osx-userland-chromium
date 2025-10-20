@@ -1,0 +1,30 @@
+From: Custom Chromium Build <build@example.com>
+Date: Mon, 1 Jan 2024 12:00:00 +0000
+Subject: [PATCH] Default to session restore on startup
+
+This patch changes the default startup behavior to restore the last session
+instead of opening a new tab page, improving user experience and workflow
+continuity.
+
+---
+ chrome/browser/prefs/session_startup_pref.cc | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/chrome/browser/prefs/session_startup_pref.cc b/chrome/browser/prefs/session_startup_pref.cc
+index 1234567..abcdefg 100644
+--- a/chrome/browser/prefs/session_startup_pref.cc
++++ b/chrome/browser/prefs/session_startup_pref.cc
+@@ -45,7 +45,9 @@ void SessionStartupPref::RegisterProfilePrefs(
+ SessionStartupPref::Type SessionStartupPref::GetDefaultStartupType() {
+ #if BUILDFLAG(IS_CHROMEOS)
+   return SessionStartupPref::DEFAULT;
+ #else
+-  return SessionStartupPref::DEFAULT;
++  // Always restore last session by default on all platforms
++  // This provides better user experience and workflow continuity
++  return SessionStartupPref::LAST;
+ #endif
+ }
+ 
+-- 
+2.40.1

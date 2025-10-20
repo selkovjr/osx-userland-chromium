@@ -1,0 +1,58 @@
+# Custom Chromium Build Arguments
+# This file contains the optimized build configuration for macOS
+
+# Basic Configuration
+is_debug = false
+dcheck_always_on = false
+is_component_build = false
+
+# Symbol Level (reduce binary size)
+symbol_level = 1
+blink_symbol_level = 0
+v8_symbol_level = 0
+
+# Google Services Integration
+enable_google_api_keys = true
+
+# Media Support
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+enable_widevine = true
+
+# Performance Optimizations
+use_custom_libcxx = true
+treat_warnings_as_errors = false
+
+# Feature Flags
+enable_media_foundation = true
+enable_media_remoting = true
+
+# Network Features
+enable_websockets = true
+enable_webrtc = true
+
+# Security Features (keep enabled for enterprise use)
+enable_pdf = true
+enable_printing = true
+
+# Disable features that can cause issues
+enable_background_mode = false
+enable_background_fetch = false
+
+# Optimization for macOS
+target_os = "mac"
+target_cpu = "x64"
+
+# Optional: Uncomment if you have Google API credentials
+# google_api_key = "your_api_key_here"
+# google_default_client_id = "your_client_id.apps.googleusercontent.com"  
+# google_default_client_secret = "your_client_secret"
+
+# Optional: Enable additional codecs if needed
+# enable_hevc_demuxing = true
+# enable_av1_decoder = true
+
+# Optional: Disable features you don't need to reduce build time
+# enable_nacl = false
+# enable_extensions = false
+# enable_pdf_viewer = false

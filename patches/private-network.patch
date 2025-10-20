@@ -1,0 +1,41 @@
+From: Custom Chromium Build <build@example.com>
+Date: Mon, 1 Jan 2024 12:00:00 +0000
+Subject: [PATCH] Bypass private network access checks for OAuth/SAML compatibility
+
+This patch disables private network access restrictions to allow OAuth
+redirect flows from enterprise identity providers (Okta, Azure AD, etc.)
+to localhost and private network addresses.
+
+---
+ .../private_network_access_url_loader_interceptor.cc | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/services/network/private_network_access_url_loader_interceptor.cc b/services/network/private_network_access_url_loader_interceptor.cc
+index 1234567..abcdefg 100644
+--- a/services/network/private_network_access_url_loader_interceptor.cc
++++ b/services/network/private_network_access_url_loader_interceptor.cc
+@@ -85,6 +85,13 @@ net::Error PrivateNetworkAccessUrlLoaderInterceptor::OnConnected(
+     mojo::ScopedDataPipeConsumerHandle* response_body,
+     const std::string& mime_type,
+     bool* defer_loading) {
++  
++  // MODIFIED: Always allow private network access for OAuth/SAML compatibility
++  // This enables enterprise authentication flows that redirect to localhost
++  // or private network addresses (common with Okta, Azure AD, etc.)
++  return net::OK;
++  
++  // Original private network blocking logic (commented out for enterprise compatibility):
++  /*
+   const network::ResourceRequest& url_request = *request;
+   
+   // Check if this is a private network request that should be blocked
+@@ -95,8 +102,8 @@ net::Error PrivateNetworkAccessUrlLoaderInterceptor::OnConnected(
+   }
+   
+   return net::OK;
++  */
+ }
+ 
+ }  // namespace network
+-- 
+2.40.1

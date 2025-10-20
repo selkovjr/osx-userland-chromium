@@ -1,0 +1,152 @@
+From: Custom Chromium Build <build@example.com>
+Date: Mon, 1 Jan 2024 12:00:00 +0000
+Subject: [PATCH] Enhanced double-click word selection in omnibox
+
+This patch implements focus-independent double-click word selection in the
+omnibox (URL bar), allowing users to select words with double-click even
+when the field is not currently focused.
+
+---
+ .../ui/views/omnibox/omnibox_view_views.cc   | 85 +++++++++++++++++++
+ .../ui/views/omnibox/omnibox_view_views.h    | 12 +++
+ 2 files changed, 97 insertions(+)
+
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+index 1234567..abcdefg 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+@@ -200,6 +200,91 @@ OmniboxViewViews::OmniboxViewViews(OmniboxEditController* controller,
+       location_bar_view_(location_bar_view),
+       security_chip_(security_chip),
+       scoped_template_url_service_observer_(this) {
++  // Initialize double-click tracking variables
++  last_click_time_ = base::TimeTicks();
++  last_click_location_ = gfx::Point();
++  pending_double_click_on_focus_ = false;
+ }
+ 
+ OmniboxViewViews::~OmniboxViewViews() {
+@@ -400,6 +485,96 @@ void OmniboxViewViews::Update() {
+   Textfield::Update();
+ }
+ 
++// Custom double-click detection for focus-independent word selection
++bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {
++  base::TimeTicks current_time = base::TimeTicks::Now();
++  base::TimeDelta time_delta = current_time - last_click_time_;
++  
++  // Check if within double-click time window
++  if (time_delta <= kDoubleClickInterval) {
++    gfx::Point current_location = event.location();
++    
++    // Check if within double-click distance threshold
++    int distance = std::abs(current_location.x() - last_click_location_.x()) + 
++                   std::abs(current_location.y() - last_click_location_.y());
++    
++    if (distance <= kDoubleClickDistance) {
++      return true;
++    }
++  }
++  
++  // Update tracking for next click
++  last_click_time_ = current_time;
++  last_click_location_ = event.location();
++  return false;
++}
++
++void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {
++  // Find character position at click location
++  size_t pos = GetTextIndexOfPoint(event.location());
++  if (pos != std::string::npos) {
++    std::u16string text = GetText();
++    size_t start = pos, end = pos;
++    
++    // Find word boundaries (stop at spaces and URL separators)
++    while (start > 0 && !std::isspace(text[start - 1]) && text[start - 1] != '/') {
++      start--;
++    }
++    while (end < text.length() && !std::isspace(text[end]) && text[end] != '/') {
++      end++;
++    }
++    
++    // Select the word if boundaries found
++    if (start < end) {
++      SelectRange(gfx::Range(start, end));
++    }
++  }
++}
++
++// Override OnMouseEvent for unfocused double-click detection
++bool OmniboxViewViews::OnMouseEvent(const ui::MouseEvent& event) {
++  // Handle double-click on unfocused omnibox
++  if (event.type() == ui::EventType::kMousePressed && 
++      event.IsLeftMouseButton() && !HasFocus()) {
++    
++    if (IsDoubleClick(event)) {
++      // Mark that we want to select word after focus
++      pending_double_click_on_focus_ = true;
++      RequestFocus();
++      return true;  // Consume the event
++    }
++  }
++  
++  // Let parent handle other events
++  return false;
++}
++
++// Override OnMousePressed for focused double-click handling
++bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
++  // Handle double-click when omnibox already has focus
++  if (event.IsLeftMouseButton() && HasFocus() && IsDoubleClick(event)) {
++    HandleDoubleClickSelection(event);
++    return true;  // Consume the event
++  }
++  
++  // Let parent class handle single clicks and other events
++  return Textfield::OnMousePressed(event);
++}
++
++// Override OnFocus to handle deferred double-click selection
++void OmniboxViewViews::OnFocus() {
++  // Call parent focus handler first
++  Textfield::OnFocus();
++  
++  // Handle pending double-click selection
++  if (pending_double_click_on_focus_) {
++    pending_double_click_on_focus_ = false;
++    
++    // Create synthetic mouse event for selection at last click location
++    ui::MouseEvent synthetic_event(ui::EventType::kMousePressed, last_click_location_, 
++                                  last_click_location_, base::TimeTicks::Now(), 
++                                  ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
++    HandleDoubleClickSelection(synthetic_event);
++  }
++}
++
+ }  // namespace
+diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.h b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+index 1234567..abcdefg 100644
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+@@ -150,6 +150,18 @@ class OmniboxViewViews : public views::Textfield,
+ 
+   // The LocationBarView that contains this OmniboxViewViews.
+   raw_ptr<LocationBarView> location_bar_view_;
++  
++  // Custom double-click detection for focus-independent word selection
++  base::TimeTicks last_click_time_;
++  gfx::Point last_click_location_;
++  bool pending_double_click_on_focus_ = false;
++  
++  // Double-click detection constants
++  static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(500);
++  static constexpr int kDoubleClickDistance = 5;  // pixels
++  
++  // Helper methods for double-click word selection
++  bool IsDoubleClick(const ui::MouseEvent& event);
++  void HandleDoubleClickSelection(const ui::MouseEvent& event);
+ 
+   DISALLOW_COPY_AND_ASSIGN(OmniboxViewViews);
+ };
+-- 
+2.40.1
