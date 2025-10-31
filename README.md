@@ -225,7 +225,7 @@ This project follows Chromium's BSD-style license. See individual files for spec
 
 ## Acknowledgments
 
-- Developed in Github Copilot / VSCode environment by Claude Sonnet 4.5 and ChatGPT-4.1. I have not touched a single line of code without AI assistance.
+- Developed in Github Copilot / VSCode environment by Claude Sonnet 4.5 and ChatGPT-4.1. I have not touched a single line of Chromium code.
 
 ---
 
