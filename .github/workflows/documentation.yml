@@ -1,0 +1,61 @@
+name: Documentation Check
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  check-docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check documentation structure
+      run: |
+        echo "Checking documentation structure..."
+        
+        # Check if all required docs exist
+        required_docs=(
+          "README.md"
+          "docs/build-guide.md"
+          "docs/code-changes.md"
+          "docs/macos-integration.md"
+          "docs/enterprise-features.md"
+          "docs/troubleshooting.md"
+        )
+        
+        for doc in "${required_docs[@]}"; do
+          if [ ! -f "$doc" ]; then
+            echo "❌ Missing: $doc"
+            exit 1
+          else
+            echo "✅ Found: $doc"
+          fi
+        done
+        
+        echo "Documentation structure check passed!"
+    
+    - name: Check patch files
+      run: |
+        echo "Checking patch files..."
+        
+        patch_files=(
+          "patches/user-agent.patch"
+          "patches/private-network.patch"
+          "patches/double-click.patch"
+          "patches/session-restore.patch"
+        )
+        
+        for patch in "${patch_files[@]}"; do
+          if [ ! -f "$patch" ]; then
+            echo "❌ Missing: $patch"
+            exit 1
+          else
+            echo "✅ Found: $patch"
+          fi
+        done
+        
+        echo "Patch files check passed!"

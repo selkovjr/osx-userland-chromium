@@ -5,9 +5,16 @@ A comprehensive guide to building and customizing Chromium on macOS with enterpr
 ## Overview
 
 This repository documents the process of building a custom Chromium browser on macOS with specific fixes for:
-- 🔐 **Okta/SAML Authentication** - Full OAuth redirect support with private network access bypass
 - 🖱️ **Enhanced Text Selection** - Focus-independent double-click word selection in the omnibox
 - 🔄 **Session Management** - Automatic session restoration and improved startup behavior  
+
+The word selection patch restores the expected behavior of word selection by double-clicking in the URL bar. It was clobbered in a recent Chrome update; the last known good binary package is 139.0.7258.128, but the Chromium source with this same tag already contains the bug.
+
+Session restoration has always been a problem in Apple's Chromium builds. This patch changes the default startup behavior to always restore the last session.
+
+An attendant problem is that Chromium source is not configured the same way as Google's Chrome builds. The default configuration lacks support for enterprise features like OAuth redirects (Okta, SAML) due to private network access restrictions, and the user agent string identifies the browser as "Chromium," which some services block. This build configures proprietary codecs, Google API keys, and modifies the user agent to report as Chrome.
+
+- 🔐 **Okta/SAML Authentication** - OAuth redirect support with private network access bypass
 - 🛡️ **Enterprise Compatibility** - User agent branding and network security bypasses
 - 🍎 **macOS Integration** - Proper GUI integration with Spotlight, Dock, and Applications folder
 
@@ -26,7 +33,7 @@ This repository documents the process of building a custom Chromium browser on m
 ### 🔧 Technical Improvements
 - **User Agent**: Modified to report as Chrome for web compatibility
 - **Network Security**: Relaxed for OAuth/SAML authentication flows
-- **Text Selection**: Custom mouse event handling for enhanced UX
+- **Text Selection**: Restored double-click behavior in omnibox
 - **Build Optimization**: Configured for compatibility and performance
 
 ## Prerequisites
@@ -35,12 +42,13 @@ This repository documents the process of building a custom Chromium browser on m
 - macOS 10.15 (Catalina) or later
 - Xcode Command Line Tools
 - At least 8GB RAM (16GB+ recommended)
-- 50GB+ free disk space
+- 200GB+ free disk space (the source alone is ~60GB)
 
 ### Required Tools
 - Git
 - Python 3
 - depot_tools (Chromium build system)
+
 
 ## Quick Start
 
@@ -51,7 +59,7 @@ git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git ~/src
 export PATH="$HOME/src/depot_tools:$PATH"
 
 # Create workspace
-mkdir ~/chromium && cd ~/chromium
+mkdir ~/chrome && cd ~/chrome
 ```
 
 ### 2. Download Source
@@ -68,10 +76,10 @@ gclient sync
 ### 3. Apply Custom Patches
 ```bash
 # Clone this repo
-git clone https://github.com/YOUR_USERNAME/osx-userland-chromium.git ~/patches
+git clone https://github.com/selkovjr/osx-userland-chromium.git ~/patches
 
 # Apply patches (see patches/ directory)
-cd ~/chromium/src
+cd ~/chrome/src
 git apply ~/patches/patches/*.patch
 ```
 
@@ -93,8 +101,8 @@ v8_symbol_level = 0
 
 ### 5. Build Chromium
 ```bash
-# Build (this takes 1-4 hours depending on your machine)
-autoninja -C out/Release chrome
+# Build (this took more than 20 hours on my M3 MackBook Pro with 18 GB of memory, with full CPU utilization)
+ulimit -n 65536 && export PATH="$HOME/src/depot_tools:$PATH" && cd /Users/gene.selkov/chromium/src && autoninja -C out/Release chrome
 ```
 
 ### 6. Install for macOS GUI Integration
@@ -203,14 +211,6 @@ open test_user_agent.html      # Verify Chrome user agent
 # Double-click URL bar text     # Test text selection
 ```
 
-## Contributing
-
-1. Fork this repository
-2. Create a feature branch: `git checkout -b feature/new-fix`
-3. Document your changes in `docs/code-changes.md`
-4. Create patches: `git format-patch -1 --stdout > patches/my-fix.patch`
-5. Submit a pull request
-
 ## Version Compatibility
 
 - **Chromium Version**: 139.0.7258.128 (tested)
@@ -225,12 +225,8 @@ This project follows Chromium's BSD-style license. See individual files for spec
 
 ## Acknowledgments
 
-- Chromium project for the excellent browser foundation
-- Enterprise users who need OAuth/SAML compatibility
-- macOS integration techniques from the community
+- Developed in Github Copilot / VSCode environment by Claude Sonnet 4.5 and ChatGPT-4.1. I have not touched a single line of code without AI assistance.
 
 ---
 
 **Status**: ✅ Production ready - All features tested and working
-
-Built with ❤️ for macOS enterprise users who need Chrome compatibility without Chrome.

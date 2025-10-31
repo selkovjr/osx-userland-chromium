@@ -32,48 +32,25 @@ index 1234567..abcdefg 100644
  
 +// Custom double-click detection for focus-independent word selection
 +bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {
-+  base::TimeTicks current_time = base::TimeTicks::Now();
-+  base::TimeDelta time_delta = current_time - last_click_time_;
-+  
-+  // Check if within double-click time window
-+  if (time_delta <= kDoubleClickInterval) {
-+    gfx::Point current_location = event.location();
-+    
-+    // Check if within double-click distance threshold
-+    int distance = std::abs(current_location.x() - last_click_location_.x()) + 
-+                   std::abs(current_location.y() - last_click_location_.y());
-+    
-+    if (distance <= kDoubleClickDistance) {
-+      return true;
++  base::TimeTicks now = event.time_stamp();
++  gfx::Point click_location = event.location();
++  bool is_double_click = false;
++  if (!last_click_time_.is_null()) {
++    base::TimeDelta time_delta = now - last_click_time_;
++    int distance = std::abs(click_location.x() - last_click_location_.x()) +
++                  std::abs(click_location.y() - last_click_location_.y());
++    if (time_delta <= kDoubleClickInterval && distance <= kDoubleClickDistance) {
++      is_double_click = true;
 +    }
 +  }
-+  
-+  // Update tracking for next click
-+  last_click_time_ = current_time;
-+  last_click_location_ = event.location();
-+  return false;
++  last_click_time_ = now;
++  last_click_location_ = click_location;
++  return is_double_click;
 +}
 +
++// Select word at click location
 +void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {
-+  // Find character position at click location
-+  size_t pos = GetTextIndexOfPoint(event.location());
-+  if (pos != std::string::npos) {
-+    std::u16string text = GetText();
-+    size_t start = pos, end = pos;
-+    
-+    // Find word boundaries (stop at spaces and URL separators)
-+    while (start > 0 && !std::isspace(text[start - 1]) && text[start - 1] != '/') {
-+      start--;
-+    }
-+    while (end < text.length() && !std::isspace(text[end]) && text[end] != '/') {
-+      end++;
-+    }
-+    
-+    // Select the word if boundaries found
-+    if (start < end) {
-+      SelectRange(gfx::Range(start, end));
-+    }
-+  }
++  Textfield::SelectWordAt(event.location());
 +}
 +
 +// Override OnMouseEvent for unfocused double-click detection
@@ -114,12 +91,8 @@ index 1234567..abcdefg 100644
 +  // Handle pending double-click selection
 +  if (pending_double_click_on_focus_) {
 +    pending_double_click_on_focus_ = false;
-+    
-+    // Create synthetic mouse event for selection at last click location
-+    ui::MouseEvent synthetic_event(ui::EventType::kMousePressed, last_click_location_, 
-+                                  last_click_location_, base::TimeTicks::Now(), 
-+                                  ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
-+    HandleDoubleClickSelection(synthetic_event);
++    // Use the built-in SelectWordAt method from Textfield
++    Textfield::SelectWordAt(last_click_location_);
 +  }
 +}
 +
@@ -128,25 +101,15 @@ diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.h b/chrome/brows
 index 1234567..abcdefg 100644
 --- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
 +++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
-@@ -150,6 +150,18 @@ class OmniboxViewViews : public views::Textfield,
- 
-   // The LocationBarView that contains this OmniboxViewViews.
-   raw_ptr<LocationBarView> location_bar_view_;
-+  
+@@ class OmniboxViewViews
+ private:
 +  // Custom double-click detection for focus-independent word selection
 +  base::TimeTicks last_click_time_;
 +  gfx::Point last_click_location_;
 +  bool pending_double_click_on_focus_ = false;
-+  
-+  // Double-click detection constants
-+  static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(500);
-+  static constexpr int kDoubleClickDistance = 5;  // pixels
-+  
++  static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(300);
++  static constexpr int kDoubleClickDistance = 2;  // pixels
++
 +  // Helper methods for double-click word selection
 +  bool IsDoubleClick(const ui::MouseEvent& event);
 +  void HandleDoubleClickSelection(const ui::MouseEvent& event);
- 
-   DISALLOW_COPY_AND_ASSIGN(OmniboxViewViews);
- };
--- 
-2.40.1
