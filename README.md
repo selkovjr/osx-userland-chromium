@@ -29,6 +29,7 @@ An attendant problem is that Chromium source is not configured the same way as G
 - **API Key Warnings**: Eliminated Google API key missing warnings
 - **Camera/Media Support**: Full media device access enabled
 - **macOS GUI Integration**: Proper app bundle with Chromium icon and naming
+- **Tab Search URL Matching**: Tab search menu (Command-Shift-A) matches and highlights full tab URLs, not just tab titles or hostnames. See `patches/tab-search-url.patch`.
 
 ### 🔧 Technical Improvements
 - **User Agent**: Modified to report as Chrome for web compatibility
@@ -134,7 +135,8 @@ osx-userland-chromium/
 │   ├── user-agent.patch      # Chrome branding fix
 │   ├── private-network.patch # Network access bypass
 │   ├── double-click.patch    # Text selection enhancement
-│   └── session-restore.patch # Startup behavior
+│   ├── session-restore.patch # Startup behavior
+│   └── tab-search-url.patch  # Tab search URL matching
 ├── scripts/                  # Helper scripts
 │   ├── install_macos_gui.sh  # macOS GUI integration
 │   ├── build.sh             # Automated build script
@@ -186,6 +188,17 @@ SessionStartupPref::Type SessionStartupPref::GetDefaultStartupType() {
 }
 ```
 
+### 5. Tab Search URL Matching (`chrome/browser/ui/views/tabs/tab_search_view.cc`)
+Enhances tab search functionality:
+```cpp
+void TabSearchView::OnTabSearch(...) {
+  // MODIFIED: Match and highlight full tab URLs in addition to titles
+  ...
+  // Update search logic to include URL matching
+  ...
+}
+```
+
 ## Installation & Usage
 
 After building, use our macOS integration:
@@ -209,6 +222,7 @@ open -a "Chromium"
 open test_user_agent.html      # Verify Chrome user agent
 # Try Okta authentication       # Test OAuth redirects  
 # Double-click URL bar text     # Test text selection
+# Open tab search (Command-Shift-A) # Test tab search URL matching
 ```
 
 ## Version Compatibility

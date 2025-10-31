@@ -40,6 +40,11 @@
   - `patches/double-click.patch`
   - `patches/session-restore.patch`
 
+### Tab Search URL Matching
+- Tab search menu (Command-Shift-A) now matches and highlights full tab URLs, not just tab titles or hostnames.
+- Implemented in `src/chrome/browser/resources/tab_search/tab_search_page.ts`.
+- Patch: `patches/tab-search-url.patch`
+
 ---
 
 For full technical details, see `docs/code-changes.md` and `docs/build-guide.md`.

@@ -262,6 +262,18 @@ void OmniboxViewViews::OnFocus() {
 }
 ```
 
+### 4. Tab Search URL Matching
+The tab search menu (Command-Shift-A) now matches and highlights full tab URLs, not just tab titles or hostnames. This is enabled by the `tab-search-url.patch`.
+
+**How to apply:**
+```bash
+git apply ~/patches/patches/tab-search-url.patch
+```
+
+**Test:**
+- Open the tab search menu and search for any part of a tab's URL. Matching tabs will be highlighted.
+```
+
 ## Build Configuration
 
 ### 1. Generate Build Files

@@ -1,0 +1,53 @@
+Subject: [PATCH] Tab Search: Enable URL Matching in Search Menu
+
+This patch allows the Chromium tab search menu (Command-Shift-A) to match and highlight full tab URLs, not just tab titles or hostnames.
+
+--- a/src/chrome/browser/resources/tab_search/tab_search_page.ts
++++ b/src/chrome/browser/resources/tab_search/tab_search_page.ts
+@@   private accessor searchOptions_: SearchOptions = {
+     keys:
+-        [
+-          {
+-            name: 'tab.title',
+-            getter: getTitle,
+-            weight: 2,
+-          },
+-          {
+-            name: 'hostname',
+-            getter: getHostname,
+-            weight: 1,
+-          },
+-          {
+-            name: 'tabGroup.title',
+-            getter: getTabGroupTitle,
+-            weight: 1.5,
+-          },
+-        ],
++        [
++          {
++            name: 'tab.title',
++            getter: getTitle,
++            weight: 2,
++          },
++          {
++            name: 'hostname',
++            getter: getHostname,
++            weight: 1,
++          },
++          {
++            name: 'tabGroup.title',
++            getter: getTabGroupTitle,
++            weight: 1.5,
++          },
++          {
++            name: 'tab.url',
++            getter: (data) => {
++              if (data instanceof TabData) {
++                // Return the normalized full URL string
++                return normalizeURL((data.tab as any).url?.url || '');
++              }
++              return undefined;
++            },
++            weight: 2,
++          },
++        ],
