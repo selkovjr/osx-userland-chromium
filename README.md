@@ -59,7 +59,7 @@ git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git ~/src
 export PATH="$HOME/src/depot_tools:$PATH"
 
 # Create workspace
-mkdir ~/chrome && cd ~/chrome
+mkdir ~/chromium && cd ~/chromium
 ```
 
 ### 2. Download Source
@@ -79,7 +79,7 @@ gclient sync
 git clone https://github.com/selkovjr/osx-userland-chromium.git ~/patches
 
 # Apply patches (see patches/ directory)
-cd ~/chrome/src
+cd ~/chromium/src
 git apply ~/patches/patches/*.patch
 ```
 
