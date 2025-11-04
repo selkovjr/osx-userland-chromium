@@ -24,6 +24,7 @@ An attendant problem is that Chromium source is not configured the same way as G
 - **Okta Push Notifications**: Works via Chrome user agent branding
 - **OAuth Redirects**: Complete redirect flow with private network access bypass
 - **Double-Click Selection**: Focus-independent word selection in URL bar
+- **Triple-Click Selection**: Standard macOS triple-click behavior (select all) in URL bar
 - **Session Restore**: Automatic restoration of previous browsing session
 - **Private Network Access**: Source-level bypass for enterprise compatibility
 - **API Key Warnings**: Eliminated Google API key missing warnings
@@ -34,7 +35,7 @@ An attendant problem is that Chromium source is not configured the same way as G
 ### 🔧 Technical Improvements
 - **User Agent**: Modified to report as Chrome for web compatibility
 - **Network Security**: Relaxed for OAuth/SAML authentication flows
-- **Text Selection**: Restored double-click behavior in omnibox
+- **Text Selection**: Restored double-click (word) and triple-click (all) behavior in omnibox
 - **Build Optimization**: Configured for compatibility and performance
 
 ## Prerequisites
@@ -135,6 +136,7 @@ osx-userland-chromium/
 │   ├── user-agent.patch      # Chrome branding fix
 │   ├── private-network.patch # Network access bypass
 │   ├── double-click.patch    # Text selection enhancement
+│   ├── triple-click.patch    # Triple-click select all
 │   ├── session-restore.patch # Startup behavior
 │   └── tab-search-url.patch  # Tab search URL matching
 ├── scripts/                  # Helper scripts

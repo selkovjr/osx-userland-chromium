@@ -1,0 +1,405 @@
+Subject: [PATCH] Omnibox: Fix triple-click to select all text
+
+This patch adds proper triple-click support to the omnibox, distinguishing
+it from double-click. Triple-click now selects all text in the omnibox,
+while double-click selects only the word under the cursor.
+
+The fix uses the native MouseEvent::GetClickCount() to detect clicks:
+- Single click (count=1): Position caret only
+- Double click (count=2): Select word at cursor  
+- Triple click (count>=3): Select all text
+
+This works both when the omnibox is focused and unfocused.
+
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+@@ -442,16 +442,19 @@ class OmniboxViewViews
+   PrefChangeRegistrar pref_change_registrar_;
+ 
+   // Track click timing for double-click across focus changes
+-  // Track click timing and location for double-click detection
+-  base::TimeTicks last_click_time_;
++  // Track click location for deferred multi-click handling
+   gfx::Point last_click_location_;
+   bool pending_double_click_on_focus_ = false;
+-  static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(300);
+-  static constexpr int kDoubleClickDistance = 2;  // pixels
++  bool pending_triple_click_on_focus_ = false;
+ 
+-  // Helper methods for double-click word selection
+-  bool IsDoubleClick(const ui::MouseEvent& event);
++  // Helper methods for multi-click selection (double-click word, triple-click all)
+   void HandleDoubleClickSelection(const ui::MouseEvent& event);
++  void HandleTripleClickSelection(const ui::MouseEvent& event);
+ 
+   base::WeakPtrFactory<OmniboxViewViews> weak_factory_{this};
+ };
+
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+@@ -1308,10 +1308,19 @@ std::u16string OmniboxViewViews::GetLabelForCommandId(int command_id) const {
+ }
+ 
+ void OmniboxViewViews::OnMouseEvent(ui::MouseEvent* event) {
+-  // Custom double-click detection for unfocused omnibox
++  // Custom multi-click detection for unfocused omnibox
+   if (event->type() == ui::EventType::kMousePressed && event->IsLeftMouseButton() && !HasFocus()) {
+-    if (IsDoubleClick(*event)) {
++    int click_count = event->GetClickCount();
++    if (click_count >= 3) {
++      // Triple-click: select all on focus
++      pending_triple_click_on_focus_ = true;
++      pending_double_click_on_focus_ = false;
++      last_click_location_ = event->location();
++      RequestFocus();
++      return; // Consume event, OnFocus will select all
++    } else if (click_count == 2) {
++      // Double-click: select word on focus
+       pending_double_click_on_focus_ = true;
++      pending_triple_click_on_focus_ = false;
++      last_click_location_ = event->location();
+       RequestFocus();
+       return; // Consume event, OnFocus will select word
+     }
+@@ -1333,10 +1342,19 @@ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
+   }
+ 
+   bool was_focused = HasFocus();
+-  // Double-click when focused: select word
+-  if (was_focused && event.IsLeftMouseButton() && IsDoubleClick(event)) {
+-    HandleDoubleClickSelection(event);
+-    return true;
++  // Handle multi-click when focused
++  if (was_focused && event.IsLeftMouseButton()) {
++    // Use native click count from the event system
++    int click_count = event.GetClickCount();
++    if (click_count >= 3) {
++      // Triple-click: select all
++      HandleTripleClickSelection(event);
++      return true;
++    } else if (click_count == 2) {
++      // Double-click: select word
++      HandleDoubleClickSelection(event);
++      return true;
++    }
+   }
+   // Single click: just position caret, do not select all
+   select_all_on_mouse_release_ = false;
+@@ -1474,6 +1492,14 @@ bool OmniboxViewViews::HandleAccessibleAction(
+ 
+ void OmniboxViewViews::OnFocus() {
+   views::Textfield::OnFocus();
++  if (pending_triple_click_on_focus_) {
++    pending_triple_click_on_focus_ = false;
++    pending_double_click_on_focus_ = false;
++    // Select all text for triple-click
++    SelectAll(false);
++    // Skip normal focus handling for triple-click case
++    return;
++  }
+   if (pending_double_click_on_focus_) {
+     pending_double_click_on_focus_ = false;
+     // Select word at last click position
+@@ -1504,29 +1530,16 @@ void OmniboxViewViews::OnFocus() {
+     location_bar_view_->OnOmniboxFocused();
+   }
+ }
+-// Double-click detection helper
+-bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {
+-  base::TimeTicks now = event.time_stamp();
+-  gfx::Point click_location = event.location();
+-  bool is_double_click = false;
+-  if (!last_click_time_.is_null()) {
+-    base::TimeDelta time_delta = now - last_click_time_;
+-    int distance = std::abs(click_location.x() - last_click_location_.x()) +
+-                  std::abs(click_location.y() - last_click_location_.y());
+-    if (time_delta <= kDoubleClickInterval && distance <= kDoubleClickDistance) {
+-      is_double_click = true;
+-    }
+-  }
+-  last_click_time_ = now;
+-  last_click_location_ = click_location;
+-  return is_double_click;
+-}
+ 
+ // Select word at click location
+ void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {
+   // Use the built-in SelectWordAt method from Textfield
+   Textfield::SelectWordAt(event.location());
+ }
+ 
++// Select all text for triple-click
++void OmniboxViewViews::HandleTripleClickSelection(const ui::MouseEvent& event) {
++  SelectAll(false);
++}
++
+ void OmniboxViewViews::OnBlur() {
+   // Save the user's existing selection to restore it later.
+
+
++  bool pending_triple_click_on_focus_ = false;     }
+
+   static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(300);@@ -1333,10 +1342,19 @@ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
+
+   static constexpr int kDoubleClickDistance = 2;  // pixels   }
+
+  
+
+-  // Helper methods for double-click word selection   bool was_focused = HasFocus();
+
++  // Helper methods for multi-click selection (double-click word, triple-click all)-  // Double-click when focused: select word
+
++  int GetClickCount(const ui::MouseEvent& event);-  if (was_focused && event.IsLeftMouseButton() && IsDoubleClick(event)) {
+
+   bool IsDoubleClick(const ui::MouseEvent& event);-    HandleDoubleClickSelection(event);
+
++  bool IsTripleClick(const ui::MouseEvent& event);-    return true;
+
+   void HandleDoubleClickSelection(const ui::MouseEvent& event);+  // Handle multi-click when focused
+
++  void HandleTripleClickSelection(const ui::MouseEvent& event);+  if (was_focused && event.IsLeftMouseButton()) {
+
+ +    // Check click count to distinguish double vs triple click
+
+   base::WeakPtrFactory<OmniboxViewViews> weak_factory_{this};+    int click_count = GetClickCount(event);
+
+ };+    if (click_count >= 3) {
+
++      // Triple-click: select all
+
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc+      HandleTripleClickSelection(event);
+
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc+      return true;
+
+@@ -1308,10 +1308,19 @@ std::u16string OmniboxViewViews::GetLabelForCommandId(int command_id) const {+    } else if (click_count == 2) {
+
+ }+      // Double-click: select word
+
+ +      HandleDoubleClickSelection(event);
+
+ void OmniboxViewViews::OnMouseEvent(ui::MouseEvent* event) {+      return true;
+
+-  // Custom double-click detection for unfocused omnibox+    }
+
++  // Custom multi-click detection for unfocused omnibox   }
+
+   if (event->type() == ui::EventType::kMousePressed && event->IsLeftMouseButton() && !HasFocus()) {   // Single click: just position caret, do not select all
+
+-    if (IsDoubleClick(*event)) {   select_all_on_mouse_release_ = false;
+
++    int click_count = GetClickCount(*event);@@ -1474,6 +1492,14 @@ bool OmniboxViewViews::HandleAccessibleAction(
+
++    if (click_count >= 3) { 
+
++      // Triple-click: select all on focus void OmniboxViewViews::OnFocus() {
+
++      pending_triple_click_on_focus_ = true;   views::Textfield::OnFocus();
+
++      pending_double_click_on_focus_ = false;+  if (pending_triple_click_on_focus_) {
+
++      RequestFocus();+    pending_triple_click_on_focus_ = false;
+
++      return; // Consume event, OnFocus will select all+    pending_double_click_on_focus_ = false;
+
++    } else if (click_count == 2) {+    // Select all text for triple-click
+
++      // Double-click: select word on focus+    SelectAll(false);
+
+       pending_double_click_on_focus_ = true;+    // Skip normal focus handling for triple-click case
+
++      pending_triple_click_on_focus_ = false;+    return;
+
+       RequestFocus();+  }
+
+       return; // Consume event, OnFocus will select word   if (pending_double_click_on_focus_) {
+
+     }     pending_double_click_on_focus_ = false;
+
+@@ -1333,10 +1342,19 @@ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {     // Select word at last click position
+
+   }@@ -1504,22 +1530,42 @@ void OmniboxViewViews::OnFocus() {
+
+      location_bar_view_->OnOmniboxFocused();
+
+   bool was_focused = HasFocus();   }
+
+-  // Double-click when focused: select word }
+
+-  if (was_focused && event.IsLeftMouseButton() && IsDoubleClick(event)) {-// Double-click detection helper
+
+-    HandleDoubleClickSelection(event);-bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {
+
+-    return true;+
+
++  // Handle multi-click when focused+// Multi-click detection helper - returns click count (1, 2, 3+)
+
++  if (was_focused && event.IsLeftMouseButton()) {+int OmniboxViewViews::GetClickCount(const ui::MouseEvent& event) {
+
++    // Check click count to distinguish double vs triple click   base::TimeTicks now = event.time_stamp();
+
++    int click_count = GetClickCount(event);   gfx::Point click_location = event.location();
+
++    if (click_count >= 3) {-  bool is_double_click = false;
+
++      // Triple-click: select all+  
+
++      HandleTripleClickSelection(event);   if (!last_click_time_.is_null()) {
+
++      return true;     base::TimeDelta time_delta = now - last_click_time_;
+
++    } else if (click_count == 2) {     int distance = std::abs(click_location.x() - last_click_location_.x()) +
+
++      // Double-click: select word                   std::abs(click_location.y() - last_click_location_.y());
+
++      HandleDoubleClickSelection(event);+    
+
++      return true;+    // If this click is within the time and distance threshold, increment count
+
++    }     if (time_delta <= kDoubleClickInterval && distance <= kDoubleClickDistance) {
+
+   }-      is_double_click = true;
+
+   // Single click: just position caret, do not select all+      consecutive_click_count_++;
+
+   select_all_on_mouse_release_ = false;+    } else {
+
+@@ -1474,6 +1492,14 @@ bool OmniboxViewViews::HandleAccessibleAction(+      // Reset to first click
+
+ +      consecutive_click_count_ = 1;
+
+ void OmniboxViewViews::OnFocus() {     }
+
+   views::Textfield::OnFocus();+  } else {
+
++  if (pending_triple_click_on_focus_) {+    // First click ever
+
++    pending_triple_click_on_focus_ = false;+    consecutive_click_count_ = 1;
+
++    pending_double_click_on_focus_ = false;   }
+
++    // Select all text for triple-click+  
+
++    SelectAll(false);   last_click_time_ = now;
+
++    // Skip normal focus handling for triple-click case   last_click_location_ = click_location;
+
++    return;-  return is_double_click;
+
++  }+  return consecutive_click_count_;
+
+   if (pending_double_click_on_focus_) {+}
+
+     pending_double_click_on_focus_ = false;+
+
+     // Select word at last click position+// Double-click detection helper
+
+@@ -1504,22 +1530,42 @@ void OmniboxViewViews::OnFocus() {+bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {
+
+     location_bar_view_->OnOmniboxFocused();+  return GetClickCount(event) == 2;
+
+   }+}
+
+ }+
+
+-// Double-click detection helper+// Triple-click detection helper
+
+-bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {+bool OmniboxViewViews::IsTripleClick(const ui::MouseEvent& event) {
+
+++  return GetClickCount(event) >= 3;
+
++// Multi-click detection helper - returns click count (1, 2, 3+) }
+
++int OmniboxViewViews::GetClickCount(const ui::MouseEvent& event) { 
+
+   base::TimeTicks now = event.time_stamp(); // Select word at click location
+
+   gfx::Point click_location = event.location();@@ -1528,6 +1574,11 @@ void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {
+
+-  bool is_double_click = false;   Textfield::SelectWordAt(event.location());
+
++   }
+
+   if (!last_click_time_.is_null()) { 
+
+     base::TimeDelta time_delta = now - last_click_time_;+// Select all text for triple-click
+
+     int distance = std::abs(click_location.x() - last_click_location_.x()) ++void OmniboxViewViews::HandleTripleClickSelection(const ui::MouseEvent& event) {
+
+                   std::abs(click_location.y() - last_click_location_.y());+  SelectAll(false);
+
++    +}
+
++    // If this click is within the time and distance threshold, increment count+
+
+     if (time_delta <= kDoubleClickInterval && distance <= kDoubleClickDistance) { void OmniboxViewViews::OnBlur() {
+
+-      is_double_click = true;   // Save the user's existing selection to restore it later.
+
++      consecutive_click_count_++;   saved_selection_for_focus_change_ = GetSelectedRange();
+
++    } else {diff --git a/chrome/browser/ui/views/omnibox/omnibox_view_views.h b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+
++      // Reset to first clickindex 5b0daacd60edb..1e938038a0411 100644
+
++      consecutive_click_count_ = 1;--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+
+     }+++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+
++  } else {@@ -442,16 +442,21 @@ class OmniboxViewViews
+
++    // First click ever   PrefChangeRegistrar pref_change_registrar_;
+
++    consecutive_click_count_ = 1; 
+
+   }   // Track click timing for double-click across focus changes
+
++  -  // Track click timing and location for double-click detection
+
+   last_click_time_ = now;+  // Track click timing and location for multi-click detection (double, triple)
+
+   last_click_location_ = click_location;   base::TimeTicks last_click_time_;
+
+-  return is_double_click;   gfx::Point last_click_location_;
+
++  return consecutive_click_count_;+  int consecutive_click_count_ = 0;
+
++}   bool pending_double_click_on_focus_ = false;
+
+++  bool pending_triple_click_on_focus_ = false;
+
++// Double-click detection helper   static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(300);
+
++bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {   static constexpr int kDoubleClickDistance = 2;  // pixels
+
++  return GetClickCount(event) == 2; 
+
++}-  // Helper methods for double-click word selection
+
+++  // Helper methods for multi-click selection (double-click word, triple-click all)
+
++// Triple-click detection helper+  int GetClickCount(const ui::MouseEvent& event);
+
++bool OmniboxViewViews::IsTripleClick(const ui::MouseEvent& event) {   bool IsDoubleClick(const ui::MouseEvent& event);
+
++  return GetClickCount(event) >= 3;+  bool IsTripleClick(const ui::MouseEvent& event);
+
+ }   void HandleDoubleClickSelection(const ui::MouseEvent& event);
+
+ +  void HandleTripleClickSelection(const ui::MouseEvent& event);
+
+ // Select word at click location 
+
+@@ -1528,6 +1574,11 @@ void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {   base::WeakPtrFactory<OmniboxViewViews> weak_factory_{this};
+
+   Textfield::SelectWordAt(event.location()); };
+
+ }
+ 
++// Select all text for triple-click
++void OmniboxViewViews::HandleTripleClickSelection(const ui::MouseEvent& event) {
++  SelectAll(false);
++}
++
+ void OmniboxViewViews::OnBlur() {
+   // Save the user's existing selection to restore it later.
+   saved_selection_for_focus_change_ = GetSelectedRange();

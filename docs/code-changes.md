@@ -133,168 +133,25 @@ net::Error PrivateNetworkAccessUrlLoaderInterceptor::OnConnected(
 
 ---
 
-## 3. Enhanced Double-Click Text Selection
+## 4. Omnibox Multi-Click Selection (NEW)
 
-### Problem
-Double-clicking on text in the omnibox (URL bar) when the field is unfocused only focuses the field without selecting the word. Users expect consistent word selection behavior regardless of focus state.
+**Files Modified:**
+- `src/chrome/browser/ui/views/omnibox/omnibox_view_views.h`
+- `src/chrome/browser/ui/views/omnibox/omnibox_view_views.cc`
 
-### Solution Location
-**Files**: 
-- `chrome/browser/ui/views/omnibox/omnibox_view_views.h` (header declarations)
-- `chrome/browser/ui/views/omnibox/omnibox_view_views.cc` (implementation)
+**Changes:**
+- Add double-click word selection and triple-click select-all support
+- Use native MouseEvent::GetClickCount() API from macOS
+- Leverage underlying Textfield's SelectWordAt() for word selection
+- Call SelectAll(false) for triple-click to match macOS behavior
+- Handle deferred selection when omnibox is not focused
 
-### Header Additions (`omnibox_view_views.h`)
-
-Add to the private section of `OmniboxViewViews` class:
-
-```cpp
-private:
-  // Custom double-click detection for focus-independent word selection
-  base::TimeTicks last_click_time_;
-  gfx::Point last_click_location_;
-  bool pending_double_click_on_focus_ = false;
-  
-  // Double-click detection constants
-  static constexpr base::TimeDelta kDoubleClickInterval = base::Milliseconds(500);
-  static constexpr int kDoubleClickDistance = 5;  // pixels
-  
-  // Helper methods for double-click word selection
-  bool IsDoubleClick(const ui::MouseEvent& event);
-  void HandleDoubleClickSelection(const ui::MouseEvent& event);
-```
-
-### Implementation Additions (`omnibox_view_views.cc`)
-
-#### Double-Click Detection Logic
-```cpp
-bool OmniboxViewViews::IsDoubleClick(const ui::MouseEvent& event) {
-  base::TimeTicks current_time = base::TimeTicks::Now();
-  base::TimeDelta time_delta = current_time - last_click_time_;
-  
-  // Check if within double-click time window
-  if (time_delta <= kDoubleClickInterval) {
-    gfx::Point current_location = event.location();
-    
-    // Check if within double-click distance threshold
-    int distance = std::abs(current_location.x() - last_click_location_.x()) + 
-                   std::abs(current_location.y() - last_click_location_.y());
-    
-    if (distance <= kDoubleClickDistance) {
-      return true;
-    }
-  }
-  
-  // Update tracking for next click
-  last_click_time_ = current_time;
-  last_click_location_ = event.location();
-  return false;
-}
-```
-
-#### Word Selection Logic
-```cpp
-void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {
-  // Find character position at click location
-  size_t pos = GetTextIndexOfPoint(event.location());
-  if (pos != std::string::npos) {
-    std::u16string text = GetText();
-    size_t start = pos, end = pos;
-    
-    // Find word boundaries (stop at spaces and URL separators)
-    while (start > 0 && !std::isspace(text[start - 1]) && text[start - 1] != '/') {
-      start--;
-    }
-    while (end < text.length() && !std::isspace(text[end]) && text[end] != '/') {
-      end++;
-    }
-    
-    // Select the word if boundaries found
-    if (start < end) {
-      SelectRange(gfx::Range(start, end));
-    }
-  }
-}
-```
-
-#### Mouse Event Override (Unfocused State)
-```cpp
-bool OmniboxViewViews::OnMouseEvent(const ui::MouseEvent& event) {
-  // Handle double-click on unfocused omnibox
-  if (event.type() == ui::EventType::kMousePressed && 
-      event.IsLeftMouseButton() && !HasFocus()) {
-    
-    if (IsDoubleClick(event)) {
-      // Mark that we want to select word after focus
-      pending_double_click_on_focus_ = true;
-      RequestFocus();
-      return true;  // Consume the event
-    }
-  }
-  
-  // Let parent handle other events
-  return false;
-}
-```
-
-#### Mouse Pressed Override (Focused State)
-```cpp
-bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
-  // Handle double-click when omnibox already has focus
-  if (event.IsLeftMouseButton() && HasFocus() && IsDoubleClick(event)) {
-    HandleDoubleClickSelection(event);
-    return true;  // Consume the event
-  }
-  
-  // Let parent class handle single clicks and other events
-  return Textfield::OnMousePressed(event);
-}
-```
-
-#### Focus Event Override (Deferred Selection)
-```cpp
-void OmniboxViewViews::OnFocus() {
-  // Call parent focus handler first
-  Textfield::OnFocus();
-  
-  // Handle pending double-click selection
-  if (pending_double_click_on_focus_) {
-    pending_double_click_on_focus_ = false;
-    
-    // Select word at the location of the original double-click
-    size_t pos = GetTextIndexOfPoint(last_click_location_);
-    if (pos != std::string::npos) {
-      std::u16string text = GetText();
-      size_t start = pos, end = pos;
-      
-      // Find word boundaries
-      while (start > 0 && !std::isspace(text[start - 1]) && text[start - 1] != '/') {
-        start--;
-      }
-      while (end < text.length() && !std::isspace(text[end]) && text[end] != '/') {
-        end++;
-      }
-      
-      // Apply selection
-      if (start < end) {
-        SelectRange(gfx::Range(start, end));
-      }
-    }
-  }
-}
-```
-
-### Explanation
-This enhancement implements a sophisticated double-click detection system that works across focus state transitions:
-
-1. **Unfocused Double-Click**: Detects double-click, focuses field, and defers word selection
-2. **Focused Double-Click**: Immediately selects word at click location
-3. **Deferred Selection**: Applies word selection after focus is acquired
-
-### Technical Details
-- **Impact**: Enhanced user experience for URL bar interaction
-- **Risk Level**: Low - only affects omnibox text selection behavior
-- **Dependencies**: UI event system, text selection infrastructure
-- **Testing**: Double-click URLs both focused and unfocused
+**Implementation Details:**
+- Detect click type using event.GetClickCount(): 1=single, 2=double, 3+=triple
+- On double-click, select word at click location instead of moving cursor
+- On triple-click, select all text in the omnibox
+- For unfocused omnibox, defer selection until focus is acquired
+- Track last_click_location_ to support deferred selection
 
 ---
 

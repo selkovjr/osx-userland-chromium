@@ -94,6 +94,15 @@ for patch in ~/patches/patches/*.patch; do
     git apply "$patch"
 done
 
+# Or apply individually (recommended for omnibox-multiclick.patch):
+git apply ~/patches/patches/user-agent.patch
+git apply ~/patches/patches/private-network.patch
+git apply ~/patches/patches/omnibox-multiclick.patch  # Combined double/triple-click
+git apply ~/patches/patches/session-restore.patch
+git apply ~/patches/patches/tab-search-url.patch
+
+# Note: omnibox-multiclick.patch supersedes older double-click.patch and triple-click.patch
+
 # Verify patches applied successfully
 git status
 git diff --name-only
@@ -272,7 +281,23 @@ git apply ~/patches/patches/tab-search-url.patch
 
 **Test:**
 - Open the tab search menu and search for any part of a tab's URL. Matching tabs will be highlighted.
+
+### 5. Omnibox Multi-Click Selection
+The omnibox (URL bar) now supports standard macOS multi-click behavior:
+- **Double-click**: Select word at cursor
+- **Triple-click**: Select all text
+
+This is enabled by the `omnibox-multiclick.patch` which supersedes the older `double-click.patch` and `triple-click.patch`.
+
+**How to apply:**
+```bash
+git apply ~/patches/patches/omnibox-multiclick.patch
 ```
+
+**Test:**
+- Triple-click anywhere in the omnibox to select all text
+- Double-click to select a word
+- Single-click to position the caret
 
 ## Build Configuration
 
@@ -425,7 +450,11 @@ git diff
 # Apply patches individually
 git apply ~/patches/patches/user-agent.patch
 git apply ~/patches/patches/private-network.patch
-# etc.
+git apply ~/patches/patches/omnibox-multiclick.patch  # Combined double/triple-click
+git apply ~/patches/patches/session-restore.patch
+git apply ~/patches/patches/tab-search-url.patch
+
+# Note: omnibox-multiclick.patch supersedes older double-click.patch and triple-click.patch
 
 # Or apply manually using the code snippets above
 ```

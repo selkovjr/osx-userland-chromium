@@ -1,0 +1,152 @@
+Subject: [PATCH] Omnibox: Enhanced multi-click text selection
+
+This patch implements focus-independent multi-click text selection in the
+omnibox (URL bar), providing standard macOS selection behavior:
+- Single click: Position caret only
+- Double click: Select word at cursor
+- Triple click: Select all text
+
+The implementation uses native MouseEvent::GetClickCount() from the system
+event API to reliably detect click patterns. Selection works both when the
+omnibox is focused and unfocused (deferred selection on focus).
+
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.h
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.h
+@@ -219,7 +219,10 @@ class OmniboxViewViews
+   // Helper method to set unelided behavior after a delay to avoid double-click interference
+   void SetUnelided();
+ 
+-  // Helper method to manually select word at location for double-click across focus changes
++  // Helper methods for multi-click selection
++  void HandleDoubleClickSelection(const ui::MouseEvent& event);
++  void HandleTripleClickSelection(const ui::MouseEvent& event);
++  
+   void SelectWordAtLocation(const gfx::Point& location);
+ 
+   // Ensure the current selection is scrolled into view
+@@ -442,6 +445,13 @@ class OmniboxViewViews
+ 
+   PrefChangeRegistrar pref_change_registrar_;
+ 
++  // Track click location for deferred multi-click handling
++  gfx::Point last_click_location_;
++  bool pending_double_click_on_focus_ = false;
++  bool pending_triple_click_on_focus_ = false;
++
++  // Helper methods for multi-click selection (double-click word, triple-click all)
++  void HandleDoubleClickSelection(const ui::MouseEvent& event);
++  void HandleTripleClickSelection(const ui::MouseEvent& event);
++
+   base::WeakPtrFactory<OmniboxViewViews> weak_factory_{this};
+ };
+
+--- a/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
++++ b/chrome/browser/ui/views/omnibox/omnibox_view_views.cc
+@@ -1308,6 +1308,36 @@ std::u16string OmniboxViewViews::GetLabelForCommandId(int command_id) const {
+   return l10n_util::GetStringFUTF16(IDS_PASTE_AND_GO, url);
+ }
+ 
++void OmniboxViewViews::OnMouseEvent(ui::MouseEvent* event) {
++  // Custom multi-click detection for unfocused omnibox
++  if (event->type() == ui::EventType::kMousePressed && event->IsLeftMouseButton() && !HasFocus()) {
++    int click_count = event->GetClickCount();
++    if (click_count >= 3) {
++      // Triple-click: select all on focus
++      pending_triple_click_on_focus_ = true;
++      pending_double_click_on_focus_ = false;
++      last_click_location_ = event->location();
++      RequestFocus();
++      return; // Consume event, OnFocus will select all
++    } else if (click_count == 2) {
++      // Double-click: select word on focus
++      pending_double_click_on_focus_ = true;
++      pending_triple_click_on_focus_ = false;
++      last_click_location_ = event->location();
++      RequestFocus();
++      return; // Consume event, OnFocus will select word
++    }
++  }
++  // Otherwise, let base class handle
++  views::Textfield::OnMouseEvent(event);
++}
++
+ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
+   PermitExternalProtocolHandler();
+ 
+@@ -1319,6 +1349,24 @@ bool OmniboxViewViews::OnMousePressed(const ui::MouseEvent& event) {
+     }
+   }
+ 
++  bool was_focused = HasFocus();
++  // Handle multi-click when focused
++  if (was_focused && event.IsLeftMouseButton()) {
++    // Use native click count from the event system
++    int click_count = event.GetClickCount();
++    if (click_count >= 3) {
++      // Triple-click: select all
++      HandleTripleClickSelection(event);
++      return true;
++    } else if (click_count == 2) {
++      // Double-click: select word
++      HandleDoubleClickSelection(event);
++      return true;
++    }
++  }
++  // Single click: just position caret, do not select all
++  select_all_on_mouse_release_ = false;
++  if (!was_focused && event.IsOnlyLeftMouseButton()) {
++    model()->SetCaretVisibility(true);
++    saved_selection_for_focus_change_ = gfx::Range::InvalidRange();
++    UpdateAccessibleTextSelection();
++  }
+   is_mouse_pressed_ = true;
++  // Suppress suggestions unless field is empty
++  if (!base::FeatureList::IsEnabled(omnibox::kShowPopupOnMouseReleased)) {
++    if (event.IsOnlyLeftMouseButton() && (!was_focused && GetText().empty())) {
++      model()->StartZeroSuggestRequest();
++    }
++  }
+   return views::Textfield::OnMousePressed(event);
+ }
+ 
+@@ -1474,6 +1522,23 @@ bool OmniboxViewViews::HandleAccessibleAction(
+ 
+ void OmniboxViewViews::OnFocus() {
+   views::Textfield::OnFocus();
++  if (pending_triple_click_on_focus_) {
++    pending_triple_click_on_focus_ = false;
++    pending_double_click_on_focus_ = false;
++    // Select all text for triple-click
++    SelectAll(false);
++    // Skip normal focus handling for triple-click case
++    return;
++  }
++  if (pending_double_click_on_focus_) {
++    pending_double_click_on_focus_ = false;
++    // Select word at last click position
++    // Use the built-in SelectWordAt method from Textfield
++    Textfield::SelectWordAt(last_click_location_);
++    // Skip normal focus handling for double-click case
++    return;
++  }
+   // ...existing code...
+   model()->ResetDisplayTexts();
+   model()->OnSetFocus(false);
+@@ -1504,6 +1569,16 @@ void OmniboxViewViews::OnFocus() {
+   }
+ }
+ 
++// Select word at click location
++void OmniboxViewViews::HandleDoubleClickSelection(const ui::MouseEvent& event) {
++  // Use the built-in SelectWordAt method from Textfield
++  Textfield::SelectWordAt(event.location());
++}
++
++// Select all text for triple-click
++void OmniboxViewViews::HandleTripleClickSelection(const ui::MouseEvent& event) {
++  SelectAll(false);
++}
++
+ void OmniboxViewViews::OnBlur() {
+   // Save the user's existing selection to restore it later.
+   saved_selection_for_focus_change_ = GetSelectedRange();

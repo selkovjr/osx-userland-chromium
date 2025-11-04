@@ -1,5 +1,27 @@
 # Changelog: Custom Chromium Enterprise Build
 
+## 2025-11-04
+
+### Omnibox Multi-Click Selection (Combined Patch)
+- Combined double-click and triple-click functionality into single comprehensive patch.
+- Single-click positions caret, double-click selects word, triple-click selects all.
+- Uses native `MouseEvent::GetClickCount()` from the system event API.
+- Works both when omnibox is focused and unfocused.
+- All changes in `chrome/browser/ui/views/omnibox/omnibox_view_views.h` and `.cc`.
+- Patch: `patches/omnibox-multiclick.patch`
+- Note: This supersedes the separate `double-click.patch` and `triple-click.patch`.
+
+## 2025-11-03
+
+### Omnibox Triple-Click Selection
+- Triple-click in omnibox now selects all text (standard macOS behavior).
+- Properly distinguishes between double-click (select word) and triple-click (select all).
+- Uses native `MouseEvent::GetClickCount()` from the system event API.
+- Works both when omnibox is focused and unfocused.
+- All changes in `chrome/browser/ui/views/omnibox/omnibox_view_views.h` and `.cc`.
+- Patch: `patches/triple-click.patch`
+- **Note: Use `omnibox-multiclick.patch` instead for new builds.**
+
 ## 2025-10-31
 
 ### Omnibox Double-Click Selection & Caret Behavior
@@ -37,8 +59,12 @@
 - All changes can be exported as patches for future maintenance:
   - `patches/user-agent.patch`
   - `patches/private-network.patch`
-  - `patches/double-click.patch`
+  - `patches/omnibox-multiclick.patch` (combined double/triple-click)
   - `patches/session-restore.patch`
+  - `patches/tab-search-url.patch`
+- Legacy patches (superseded by omnibox-multiclick.patch):
+  - `patches/double-click.patch` (original implementation)
+  - `patches/triple-click.patch` (improved implementation)
 
 ### Tab Search URL Matching
 - Tab search menu (Command-Shift-A) now matches and highlights full tab URLs, not just tab titles or hostnames.
