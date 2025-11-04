@@ -5,8 +5,8 @@ A comprehensive guide to building and customizing Chromium on macOS with enterpr
 ## Overview
 
 This repository documents the process of building a custom Chromium browser on macOS with specific fixes for:
-- 🖱️ **Enhanced Text Selection** - Focus-independent double-click word selection in the omnibox
-- 🔄 **Session Management** - Automatic session restoration and improved startup behavior  
+- **Enhanced Text Selection** - Focus-independent double-click word selection in the omnibox
+- **Session Management** - Automatic session restoration and improved startup behavior  
 
 The word selection patch restores the expected behavior of word selection by double-clicking in the URL bar. It was clobbered in a recent Chrome update; the last known good binary package is 139.0.7258.128, but the Chromium source with this same tag already contains the bug.
 
@@ -14,9 +14,9 @@ Session restoration has always been a problem in Apple's Chromium builds. This p
 
 An attendant problem is that Chromium source is not configured the same way as Google's Chrome builds. The default configuration lacks support for enterprise features like OAuth redirects (Okta, SAML) due to private network access restrictions, and the user agent string identifies the browser as "Chromium," which some services block. This build configures proprietary codecs, Google API keys, and modifies the user agent to report as Chrome.
 
-- 🔐 **Okta/SAML Authentication** - OAuth redirect support with private network access bypass
-- 🛡️ **Enterprise Compatibility** - User agent branding and network security bypasses
-- 🍎 **macOS Integration** - Proper GUI integration with Spotlight, Dock, and Applications folder
+- **Okta/SAML Authentication** - OAuth redirect support with private network access bypass
+-  **Enterprise Compatibility** - User agent branding and network security bypasses
+- **macOS Integration** - Proper GUI integration with Spotlight, Dock, and Applications folder
 
 ## Features
 
