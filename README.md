@@ -31,6 +31,7 @@ An attendant problem is that Chromium source is not configured the same way as G
 - **Camera/Media Support**: Full media device access enabled
 - **macOS GUI Integration**: Proper app bundle with Chromium icon and naming
 - **Tab Search URL Matching**: Tab search menu (Command-Shift-A) matches and highlights full tab URLs, not just tab titles or hostnames. See `patches/tab-search-url.patch`.
+- **Case-Sensitive URL Matching**: Prevents the omnibox from replacing the current URL with a history item based on case-insensitive matching. The user's exact typed text is preserved. See `patches/omnibox-case-sensitive-url.patch`.
 
 ### 🔧 Technical Improvements
 - **User Agent**: Modified to report as Chrome for web compatibility
@@ -138,7 +139,8 @@ osx-userland-chromium/
 │   ├── double-click.patch    # Text selection enhancement
 │   ├── triple-click.patch    # Triple-click select all
 │   ├── session-restore.patch # Startup behavior
-│   └── tab-search-url.patch  # Tab search URL matching
+│   ├── tab-search-url.patch  # Tab search URL matching
+│   └── omnibox-case-sensitive-url.patch # Case-sensitive URL matching
 ├── scripts/                  # Helper scripts
 │   ├── install_macos_gui.sh  # macOS GUI integration
 │   ├── build.sh             # Automated build script
@@ -197,6 +199,27 @@ void TabSearchView::OnTabSearch(...) {
   // MODIFIED: Match and highlight full tab URLs in addition to titles
   ...
   // Update search logic to include URL matching
+  ...
+}
+```
+
+### 6. Case-Sensitive URL Matching (`components/omnibox/browser/omnibox_edit_model.cc`)
+Prevents case-insensitive history matches from replacing user's typed text:
+```cpp
+void OmniboxEditModel::OnCurrentMatchChanged() {
+  // MODIFIED: Prevent replacing user's text with a case-insensitive history match.
+  // If the user has typed text that doesn't exactly match (case-sensitively) the
+  // match's fill_into_edit, clear the inline autocompletion to prevent the text
+  // from being replaced.
+  if (user_input_in_progress_ && match.destination_url.is_valid() &&
+      !inline_autocompletion.empty()) {
+    // Check if the user's text exactly matches (case-sensitively) what would be
+    // filled in. If not, clear the inline autocompletion to prevent replacement.
+    if (current_text != full_match_text && user_text_with_keyword != match.fill_into_edit &&
+        current_text != match.fill_into_edit) {
+      inline_autocompletion.clear();
+    }
+  }
   ...
 }
 ```

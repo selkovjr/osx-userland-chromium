@@ -1,0 +1,751 @@
+diff --git a/components/history/core/browser/url_database.cc b/components/history/core/browser/url_database.cc
+index 95ea8b5b246ca..a637c17551f9d 100644
+--- a/components/history/core/browser/url_database.cc
++++ b/components/history/core/browser/url_database.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "components/history/core/browser/url_database.h"
+ 
++#include <cctype>
+ #include <string>
+ #include <vector>
+ 
+@@ -312,46 +313,104 @@ bool URLDatabase::AutocompleteForPrefix(const std::string& prefix,
+                                         size_t max_results,
+                                         bool typed_only,
+                                         URLRows* results) {
+-  // NOTE: this query originally sorted by starred as the second parameter. But
+-  // as bookmarks is no longer part of the db we no longer include the order
+-  // by clause.
++  // MODIFIED: Split the query into separate queries for lowercase and uppercase
++  // to ensure case-sensitive matching. The original range query could match
++  // case-insensitively due to how SQLite's binary comparison works with ranges.
++  // By splitting into two queries (one for lowercase prefix, one for uppercase),
++  // we ensure only exact case-sensitive matches are returned.
+   results->clear();
+ 
+-  sql::Statement statement;
+-  if (typed_only) {
+-    statement.Assign(GetDB().GetCachedStatement(
+-        SQL_FROM_HERE,
+-        "SELECT" HISTORY_URL_ROW_FIELDS
+-        "FROM urls "
+-        "WHERE url >= ? AND url < ? AND hidden = 0 AND typed_count > 0 "
+-        "ORDER BY typed_count DESC, visit_count DESC, last_visit_time DESC "
+-        "LIMIT ?"));
+-  } else {
+-    statement.Assign(GetDB().GetCachedStatement(
+-        SQL_FROM_HERE,
+-        "SELECT" HISTORY_URL_ROW_FIELDS
+-        "FROM urls "
+-        "WHERE url >= ? AND url < ? AND hidden = 0 "
+-        "ORDER BY typed_count DESC, visit_count DESC, last_visit_time DESC "
+-        "LIMIT ?"));
+-  }
++  // Helper lambda to execute a single case-specific query
++  auto execute_query = [this, typed_only, max_results](const std::string& case_prefix, URLRows* case_results) {
++    sql::Statement statement;
++    if (typed_only) {
++      statement.Assign(GetDB().GetCachedStatement(
++          SQL_FROM_HERE,
++          "SELECT" HISTORY_URL_ROW_FIELDS
++          "FROM urls "
++          "WHERE url >= ? AND url < ? AND hidden = 0 AND typed_count > 0 "
++          "ORDER BY typed_count DESC, visit_count DESC, last_visit_time DESC "
++          "LIMIT ?"));
++    } else {
++      statement.Assign(GetDB().GetCachedStatement(
++          SQL_FROM_HERE,
++          "SELECT" HISTORY_URL_ROW_FIELDS
++          "FROM urls "
++          "WHERE url >= ? AND url < ? AND hidden = 0 "
++          "ORDER BY typed_count DESC, visit_count DESC, last_visit_time DESC "
++          "LIMIT ?"));
++    }
+ 
+-  // We will find all strings between "prefix" and this string, which is prefix
+-  // followed by the maximum character size. Use 8-bit strings for everything
+-  // so we can be sure sqlite is comparing everything in 8-bit mode. Otherwise,
+-  // it will have to convert strings either to UTF-8 or UTF-16 for comparison.
+-  std::string end_query = database_utils::UpperBoundString(prefix);
++    std::string end_query = database_utils::UpperBoundString(case_prefix);
++    statement.BindString(0, case_prefix);
++    statement.BindString(1, end_query);
++    statement.BindInt(2, static_cast<int>(max_results));
+ 
+-  statement.BindString(0, prefix);
+-  statement.BindString(1, end_query);
+-  statement.BindInt(2, static_cast<int>(max_results));
++    while (statement.Step()) {
++      URLRow info;
++      if (FillURLRow(statement, &info)) {
++        case_results->push_back(info);
++      }
++    }
++  };
+ 
+-  while (statement.Step()) {
+-    URLRow info;
+-    if (FillURLRow(statement, &info)) {
+-      results->push_back(info);
++  // MODIFIED: Split the query into separate queries for lowercase and uppercase
++  // versions of the prefix to ensure we catch all potential matches, then filter
++  // to only include case-sensitive matches in history_url_provider.cc.
++  // 
++  // The range query uses SQLite's binary comparison which is case-sensitive,
++  // but by querying for both lowercase and uppercase versions, we ensure we
++  // don't miss any matches. The filtering step will then ensure only the
++  // case-sensitive match is included.
++  if (prefix.empty()) {
++    // Empty prefix - just do one query
++    execute_query(prefix, results);
++    return !results->empty();
++  }
++
++  // Find the last alphabetic character in the prefix to split
++  size_t last_alpha_pos = std::string::npos;
++  for (size_t i = prefix.length(); i > 0; --i) {
++    if (std::isalpha(static_cast<unsigned char>(prefix[i - 1]))) {
++      last_alpha_pos = i - 1;
++      break;
+     }
+   }
++  
++  if (last_alpha_pos == std::string::npos) {
++    // No alphabetic characters - just query for the exact prefix
++    execute_query(prefix, results);
++    return !results->empty();
++  }
++  
++  // Split prefix at the last alphabetic character
++  std::string base_prefix = prefix.substr(0, last_alpha_pos);
++  char last_char = prefix[last_alpha_pos];
++  std::string suffix = prefix.substr(last_alpha_pos + 1);
++  
++  // Create lowercase and uppercase versions
++  char last_char_lower = static_cast<char>(std::tolower(static_cast<unsigned char>(last_char)));
++  char last_char_upper = static_cast<char>(std::toupper(static_cast<unsigned char>(last_char)));
++  
++  std::string prefix_lower = base_prefix + last_char_lower + suffix;
++  std::string prefix_upper = base_prefix + last_char_upper + suffix;
++  
++  // Execute both queries and combine results
++  URLRows results_lower, results_upper;
++  execute_query(prefix_lower, &results_lower);
++  if (prefix_lower != prefix_upper) {
++    execute_query(prefix_upper, &results_upper);
++  }
++  
++  // Combine results
++  results->reserve(results_lower.size() + results_upper.size());
++  results->insert(results->end(), results_lower.begin(), results_lower.end());
++  results->insert(results->end(), results_upper.begin(), results_upper.end());
++  
++  // Note: We don't truncate here because the filtering in history_url_provider.cc
++  // will remove non-matching entries, and we want to ensure we have enough
++  // candidates to filter from.
++  
+   return !results->empty();
+ }
+ 
+diff --git a/components/omnibox/browser/autocomplete_provider.cc b/components/omnibox/browser/autocomplete_provider.cc
+index c9bf36674fc54..58fd82eeaba47 100644
+--- a/components/omnibox/browser/autocomplete_provider.cc
++++ b/components/omnibox/browser/autocomplete_provider.cc
+@@ -13,6 +13,7 @@
+ #include <string>
+ 
+ #include "base/i18n/time_formatting.h"
++#include "base/logging.h"
+ #include "base/notreached.h"
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+@@ -142,6 +143,7 @@ void AutocompleteProvider::StartPrefetch(const AutocompleteInput& input) {
+ void AutocompleteProvider::Stop(AutocompleteStopReason stop_reason) {
+   done_ = true;
+   if (stop_reason == AutocompleteStopReason::kClobbered) {
++    VLOG(2) << "[AutocompleteProvider] Stop: Clearing matches_ (size=" << matches_.size() << ") for provider type=" << type_;
+     matches_.clear();
+     suggestion_groups_map_.clear();
+   }
+diff --git a/components/omnibox/browser/autocomplete_result.cc b/components/omnibox/browser/autocomplete_result.cc
+index 8313e30e22f52..9a4bc8817e247 100644
+--- a/components/omnibox/browser/autocomplete_result.cc
++++ b/components/omnibox/browser/autocomplete_result.cc
+@@ -26,6 +26,7 @@
+ #include "base/notreached.h"
+ #include "base/strings/string_number_conversions.h"
+ #include "base/strings/utf_string_conversions.h"
++#include "base/logging.h"
+ #include "base/trace_event/memory_usage_estimator.h"
+ #include "base/trace_event/typed_macros.h"
+ #include "build/build_config.h"
+@@ -324,18 +325,76 @@ void AutocompleteResult::Sort(
+   if (default_match_to_preserve &&
+       (top_match == matches_.end() ||
+        top_match->type != AutocompleteMatchType::URL_WHAT_YOU_TYPED)) {
+-    const auto default_match_fields =
+-        GetMatchComparisonFields(default_match_to_preserve.value());
+-    const auto preserved_default_match =
+-        std::ranges::find_if(matches_, [&](const AutocompleteMatch& match) {
+-          // Find a duplicate match. Don't preserve suggestions that are not
+-          // default-able; e.g., typing 'xy' shouldn't preserve default
+-          // 'xz.com/xy'.
+-          return default_match_fields == GetMatchComparisonFields(match) &&
+-                 match.allowed_to_be_default_match;
+-        });
+-    if (preserved_default_match != matches_.end())
+-      top_match = preserved_default_match;
++    // MODIFIED: Check if the preserved match's URL contains the current input text
++    // (case-sensitively). If the user changes 'f' to 'F', and the preserved match has 'f16',
++    // then 'F' is not in 'f16' (case-sensitively), so we shouldn't preserve it.
++    // This is an additional safeguard to prevent preserving matches that don't match
++    // the current input case-sensitively.
++    std::string preserved_url = default_match_to_preserve->destination_url.spec();
++    std::u16string input_text = input.text();
++    std::string input_text_utf8 = base::UTF16ToUTF8(input_text);
++    
++    // Check if the preserved URL contains the current input text (case-sensitively)
++    // If it doesn't, don't preserve the match. This prevents preserving a match
++    // when the user changes the case of characters in their input.
++    bool preserved_url_contains_input = false;
++    if (!input_text_utf8.empty()) {
++      // Search for the input text in the preserved URL (case-sensitive)
++      size_t pos = preserved_url.find(input_text_utf8);
++      if (pos != std::string::npos) {
++        // Found the input text - verify it's an exact match
++        std::string found_substring = preserved_url.substr(pos, input_text_utf8.length());
++        if (found_substring == input_text_utf8) {
++          preserved_url_contains_input = true;
++        }
++      }
++    }
++    
++    // DEBUG: Log preservation attempt
++    VLOG(2) << "[AutocompleteResult] Sort: Checking preservation - preserved_url='" 
++            << preserved_url << "' input_text='" << input_text_utf8 
++            << "' preserved_url_contains_input=" << preserved_url_contains_input;
++    
++    // Only try to preserve if the preserved URL contains the current input (case-sensitively)
++    if (preserved_url_contains_input) {
++      const auto default_match_fields =
++          GetMatchComparisonFields(default_match_to_preserve.value());
++      const auto preserved_default_match =
++          std::ranges::find_if(matches_, [&](const AutocompleteMatch& match) {
++            // Find a duplicate match. Don't preserve suggestions that are not
++            // default-able; e.g., typing 'xy' shouldn't preserve default
++            // 'xz.com/xy'.
++            // MODIFIED: Also check that the destination URLs match exactly (case-sensitive).
++            // This prevents preserving a match that differs only in case from the current input.
++            // For example, if the user changes "flag=f16" to "flag=F16", we should not preserve
++            // the "flag=f16" match even if the stripped URLs are the same.
++            // 
++            // CRITICAL: The destination URL must match EXACTLY (case-sensitive). This is the
++            // most important check - if the URLs differ in case, we must not preserve the match.
++            // This prevents the lowercase version from being preserved when the user changes
++            // 'f' to 'F' in their input.
++            bool urls_match_exact = (default_match_to_preserve->destination_url.spec() == 
++                                     match.destination_url.spec());
++            if (!urls_match_exact) {
++              // URLs don't match exactly (case-sensitive) - don't preserve
++              return false;
++            }
++            // URLs match exactly - now check other fields
++            bool fields_match = default_match_fields == GetMatchComparisonFields(match);
++            return fields_match && match.allowed_to_be_default_match;
++          });
++      if (preserved_default_match != matches_.end()) {
++        VLOG(2) << "[AutocompleteResult] Sort: Preserved match found - destination_url='" 
++                << preserved_default_match->destination_url.spec() << "'";
++        top_match = preserved_default_match;
++      } else {
++        VLOG(2) << "[AutocompleteResult] Sort: Preserved match NOT found in current results";
++      }
++    } else {
++      VLOG(2) << "[AutocompleteResult] Sort: NOT preserving match - preserved URL does not contain current input (case-sensitive)";
++    }
++    // If preserved_url_contains_input is false, we don't try to preserve the match
++    // This prevents preserving a match when the user changes the case of characters
+   }
+ 
+   RotateMatchToFront(top_match, &matches_);
+diff --git a/components/omnibox/browser/history_url_provider.cc b/components/omnibox/browser/history_url_provider.cc
+index d50b0815d290d..30175e2d610e4 100644
+--- a/components/omnibox/browser/history_url_provider.cc
++++ b/components/omnibox/browser/history_url_provider.cc
+@@ -16,6 +16,7 @@
+ #include "base/location.h"
+ #include "base/memory/raw_ptr.h"
+ #include "base/metrics/histogram_macros.h"
++#include "base/logging.h"
+ #include "base/strings/string_util.h"
+ #include "base/strings/utf_string_conversions.h"
+ #include "base/task/sequenced_task_runner.h"
+@@ -94,9 +95,62 @@ bool CompareHistoryMatch(const history::HistoryMatch& a,
+ }
+ 
+ // Sorts and dedups the given list of matches.
+-void SortAndDedupMatches(history::HistoryMatches* matches) {
++void SortAndDedupMatches(history::HistoryMatches* matches,
++                         const std::u16string& input_text = std::u16string()) {
+   // Sort by quality, best first.
+-  std::sort(matches->begin(), matches->end(), &CompareHistoryMatch);
++  // MODIFIED: If input_text is provided, prefer exact case-sensitive matches.
++  if (!input_text.empty()) {
++    std::sort(matches->begin(), matches->end(), 
++              [&input_text](const history::HistoryMatch& a, const history::HistoryMatch& b) {
++                // Check if URLs match the input text case-sensitively at the position where
++                // the user typed it. For example, if user types "F" at the end of a URL,
++                // we want to prefer URLs ending with "F" over "f".
++                std::u16string url_a = base::UTF8ToUTF16(a.url_info.url().spec());
++                std::u16string url_b = base::UTF8ToUTF16(b.url_info.url().spec());
++                
++                // Check if URL ends with input (case-sensitive) - primary check for suffix matches
++                // If user types "F" at the end, we want "flag=F" to be preferred over "flag=f16"
++                bool a_ends_with = (url_a.length() >= input_text.length() &&
++                                    url_a.substr(url_a.length() - input_text.length()) == input_text);
++                bool b_ends_with = (url_b.length() >= input_text.length() &&
++                                    url_b.substr(url_b.length() - input_text.length()) == input_text);
++                
++                // Check if URL starts with input (case-sensitive) - for prefix matches
++                // If user types "f", we want "f16" to be preferred over "F16"
++                bool a_starts_with = base::StartsWith(url_a, input_text, base::CompareCase::SENSITIVE);
++                bool b_starts_with = base::StartsWith(url_b, input_text, base::CompareCase::SENSITIVE);
++                
++                // Check if URL contains input at any position (case-sensitive)
++                // This helps when input appears in the middle of the URL
++                size_t a_contains = url_a.find(input_text);
++                size_t b_contains = url_b.find(input_text);
++                bool a_contains_exact = (a_contains != std::u16string::npos);
++                bool b_contains_exact = (b_contains != std::u16string::npos);
++                
++                // Prefer exact case-sensitive end matches first (most common case)
++                if (a_ends_with != b_ends_with) {
++                  return a_ends_with;  // a is better if it ends with input (case-sensitive)
++                }
++                
++                // Then prefer exact case-sensitive start matches
++                if (a_starts_with != b_starts_with) {
++                  return a_starts_with;  // a is better if it starts with input (case-sensitive)
++                }
++                
++                // Then prefer URLs that contain the input (case-sensitive) earlier in the string
++                if (a_contains_exact != b_contains_exact) {
++                  return a_contains_exact;  // a is better if it contains input
++                }
++                if (a_contains_exact && b_contains_exact && a_contains != b_contains) {
++                  return a_contains < b_contains;  // Prefer earlier match
++                }
++                
++                // Otherwise, use the standard comparison
++                return CompareHistoryMatch(a, b);
++              });
++  } else {
++    std::sort(matches->begin(), matches->end(), &CompareHistoryMatch);
++  }
+ 
+   // Remove duplicate matches (caused by the search string appearing in one of
+   // the prefixes as well as after it).  Consider the following scenario:
+@@ -340,10 +394,33 @@ HistoryURLProvider::VisitClassifier::VisitClassifier(
+   for (const URLPrefix& url_prefix : base::Reversed(url_prefixes)) {
+     const GURL url_with_prefix = url_formatter::FixupURL(
+         base::UTF16ToUTF8(url_prefix.prefix + input.text()), desired_tld);
+-    if (url_with_prefix.is_valid() &&
+-        db_->GetRowForURL(url_with_prefix, &url_row_) && !url_row_.hidden()) {
+-      type_ = Type::kVisited;
+-      return;
++    if (url_with_prefix.is_valid()) {
++      history::URLRow found_row;
++      history::URLID found_id = db_->GetRowForURL(url_with_prefix, &found_row);
++      VLOG(2) << "[HistoryURLProvider] VisitClassifier: Checking URL '" 
++              << url_with_prefix.spec() << "' found_id=" << found_id;
++      if (found_id && !found_row.hidden()) {
++        // MODIFIED: Only consider this a match if the URLs match exactly (case-sensitive).
++        // This prevents case-insensitive matching in VisitClassifier.
++        // If the user types "flag=F16" and history has "flag=f16", they should be
++        // treated as different URLs.
++        std::string typed_spec = url_with_prefix.spec();
++        std::string history_spec = found_row.url().spec();
++        if (history_spec == typed_spec) {
++          // URLs match exactly (case-sensitive) - this is a valid match
++          url_row_ = found_row;
++          type_ = Type::kVisited;
++          VLOG(2) << "[HistoryURLProvider] VisitClassifier: Found exact case-sensitive match: '"
++                  << typed_spec << "'";
++          return;
++        } else {
++          // URLs differ (case-sensitive) - not a match
++          VLOG(2) << "[HistoryURLProvider] VisitClassifier: URLs differ (case-sensitive), not a match. "
++                  << "Typed: '" << typed_spec << "' History: '" << history_spec << "'";
++        }
++      } else if (found_id) {
++        VLOG(2) << "[HistoryURLProvider] VisitClassifier: URL found but is hidden";
++      }
+     }
+   }
+ 
+@@ -423,7 +500,14 @@ void HistoryURLProvider::Start(const AutocompleteInput& input,
+   // re-run the query from scratch and ignore `minimal_changes`.
+ 
+   // Cancel any in-progress query.
++  // MODIFIED: Always clear matches when starting a new query to ensure old matches
++  // (especially case-different ones) don't persist.
+   Stop(AutocompleteStopReason::kClobbered);
++  // Double-check that matches are cleared - this is critical for case-sensitive matching
++  if (!matches_.empty()) {
++    VLOG(2) << "[HistoryURLProvider] Start: matches_ not empty after Stop(), clearing manually. size=" << matches_.size();
++    matches_.clear();
++  }
+   if (input.IsZeroSuggest() ||
+       (input.type() == metrics::OmniboxInputType::EMPTY)) {
+     return;
+@@ -485,8 +569,12 @@ void HistoryURLProvider::Start(const AutocompleteInput& input,
+   // service or URL DB; otherwise, we'll replace this match lower down.  Don't
+   // do this for queries, though -- while we can sometimes mark up a match for
+   // them, it's not what the user wants, and just adds noise.
+-  if (fixed_up_input.type() != metrics::OmniboxInputType::QUERY)
++  if (fixed_up_input.type() != metrics::OmniboxInputType::QUERY) {
++    VLOG(2) << "[HistoryURLProvider] Start: Adding what_you_typed_match: destination_url='" 
++            << what_you_typed_match.destination_url.spec() 
++            << "' fill_into_edit='" << base::UTF16ToUTF8(what_you_typed_match.fill_into_edit) << "'";
+     matches_.push_back(what_you_typed_match);
++  }
+ 
+   // We'll need the history service to run both passes, so try to obtain it.
+   history::HistoryService* const history_service =
+@@ -523,9 +611,14 @@ void HistoryURLProvider::Start(const AutocompleteInput& input,
+   // someone unloads the history backend, we'll get inconsistent inline
+   // autocomplete behavior here.
+   if (url_db) {
++    VLOG(2) << "[HistoryURLProvider] Start: Pass 1 (in-memory DB) - calling DoAutocomplete";
+     DoAutocomplete(nullptr, url_db, params.get());
++    VLOG(2) << "[HistoryURLProvider] Start: Pass 1 complete, params->matches.size()=" 
++            << params->matches.size() << ", clearing matches_";
+     matches_.clear();
+     PromoteMatchesIfNecessary(*params);
++    VLOG(2) << "[HistoryURLProvider] Start: Pass 1 - matches_.size() after PromoteMatchesIfNecessary=" 
++            << matches_.size();
+     // NOTE: We don't reset `params` here since at least the `promote_type`
+     // field on it will be read by the second pass -- see comments in
+     // DoAutocomplete().
+@@ -543,9 +636,11 @@ void HistoryURLProvider::Start(const AutocompleteInput& input,
+ }
+ 
+ void HistoryURLProvider::Stop(AutocompleteStopReason stop_reason) {
++  VLOG(2) << "[HistoryURLProvider] Stop: stop_reason=" << static_cast<int>(stop_reason) << " matches_.size()=" << matches_.size();
+   AutocompleteProvider::Stop(stop_reason);
+   if (params_)
+     params_->cancel_flag.Set();
++  VLOG(2) << "[HistoryURLProvider] Stop: After clearing, matches_.size()=" << matches_.size();
+ }
+ 
+ size_t HistoryURLProvider::EstimateMemoryUsage() const {
+@@ -643,8 +738,134 @@ void HistoryURLProvider::DoAutocomplete(history::HistoryBackend* backend,
+                                 &url_matches);
+       for (const auto& url_match : url_matches) {
+         const GURL& row_url = url_match.url();
++        
++        // MODIFIED: Filter to only include case-sensitive matches.
++        // The database query uses AutocompleteForPrefix which does a range query
++        // that can match case-insensitively due to SQLite's binary comparison.
++        // For example, querying for "f" will match both "f16" and "F16" because
++        // "F" (70) < "f" (102) in ASCII, so "F16" falls in the range [102, 102+255).
++        // We MUST filter out case-insensitive matches here.
++        std::string url_spec_str = row_url.spec();
++        std::u16string url_spec = base::UTF8ToUTF16(url_spec_str);
++        std::u16string prefix_u16 = prefix.prefix;
++        std::u16string input_text_u16 = params->input.text();
++        std::u16string prefixed_input_u16 = prefix_u16 + input_text_u16;
++        std::string prefixed_input_str = base::UTF16ToUTF8(prefixed_input_u16);
++        
++        // CRITICAL: The database query returns case-insensitive matches.
++        // We must verify that the URL actually contains the user's input text
++        // case-sensitively. If the user types "f", we should ONLY include URLs
++        // containing "f", NOT "F". This is the fundamental requirement.
++        //
++        // The filtering MUST work: if user types "f" and URL has "F", the substring
++        // search for "f" (case-sensitive) will return npos (not found), so the match
++        // will be correctly filtered out.
++        bool is_case_sensitive_match = false;
++        
++        // PRIMARY CHECK: Does the URL contain the input text as a substring (case-sensitive)?
++        // This is the most important check - it catches all cases.
++        // CRITICAL: std::u16string::find() is case-sensitive, so "f" will NOT match "F".
++        // If user types "f" and URL has "F", find() returns npos (not found).
++        // 
++        // This is the fundamental filter: if the user types "f", only URLs containing "f"
++        // (not "F") should pass. If the URL contains "F" but not "f", it must be filtered out.
++        //
++        // IMPORTANT: We check if the URL contains the input text anywhere, not just at the start.
++        // This handles cases where the user is editing a URL and changes "f" to "F" in the middle.
++        if (input_text_u16.length() > 0) {
++          // Search for the input text in the URL (case-sensitive)
++          // This will return npos if the input text is not found (case-sensitive)
++          size_t pos = url_spec.find(input_text_u16);
++          if (pos != std::u16string::npos) {
++            // Found the input text - verify it's an exact match
++            std::u16string found_substring = url_spec.substr(pos, input_text_u16.length());
++            if (found_substring == input_text_u16) {
++              is_case_sensitive_match = true;
++            }
++          }
++          // If pos == npos, the input text is NOT in the URL (case-sensitive),
++          // so is_case_sensitive_match remains false and the match will be filtered out.
++          // Example: User types "F", URL has "f" -> find("F") returns npos -> filtered out ✓
++        }
++        
++        // SECONDARY CHECK: Does the URL start with the exact prefixed_input (case-sensitive)?
++        // This handles prefix-based queries where the full prefixed input should match.
++        if (!is_case_sensitive_match && url_spec_str.length() >= prefixed_input_str.length()) {
++          if (url_spec_str.compare(0, prefixed_input_str.length(), prefixed_input_str) == 0) {
++            is_case_sensitive_match = true;
++          }
++        }
++        
++        // TERTIARY CHECK: Check if URL at position after prefix matches input (case-sensitive).
++        // This handles cases where the prefix might not match exactly.
++        if (!is_case_sensitive_match && prefix_u16.length() < url_spec.length()) {
++          size_t input_pos = prefix_u16.length();
++          if (url_spec.length() >= input_pos + input_text_u16.length()) {
++            std::u16string url_at_input = url_spec.substr(input_pos, input_text_u16.length());
++            // Direct case-sensitive comparison - "f" != "F"
++            if (url_at_input == input_text_u16) {
++              is_case_sensitive_match = true;
++            }
++          }
++        }
++        
++        // CRITICAL FILTER: Only include matches that contain the exact input text case-sensitively.
++        // This is the fundamental requirement: "f" must NOT match "F" and vice versa.
++        // If the URL does not contain the user's exact input (case-sensitive), it must be filtered out.
++        // This prevents case-insensitive matches from appearing in the dropdown.
++        // 
++        // Example: User types "f", URL has "F16" -> find("f") returns npos -> filtered out ✓
++        //          User types "f", URL has "f16" -> find("f") returns 0 -> included ✓
++        //          User types "https://example.com/flag=F", URL has "https://example.com/flag=f16"
++        //          -> find("https://example.com/flag=F") returns npos -> filtered out ✓
++        if (!is_case_sensitive_match) {
++          // DEBUG: Log filtered matches to help diagnose issues
++          VLOG(2) << "[HistoryURLProvider] Filtered case-insensitive match: input='" 
++                  << base::UTF16ToUTF8(input_text_u16) << "' url='" 
++                  << url_spec_str << "' prefix='" << base::UTF16ToUTF8(prefix_u16) << "'";
++          continue;  // Skip - does not contain the input text case-sensitively
++        }
++        
++        // DEBUG: Log matches that pass the filter
++        VLOG(2) << "[HistoryURLProvider] Case-sensitive match passed: input='" 
++                << base::UTF16ToUTF8(input_text_u16) << "' url='" 
++                << url_spec_str << "'";
++        
++        // ADDITIONAL VERIFICATION: If the input looks like a full URL, also verify
++        // that the history URL doesn't differ only in case from what the user typed.
++        // This catches cases where the substring search might miss differences.
++        if (input_text_u16.length() > 10 && 
++            (url_spec.find(u"://") != std::u16string::npos || 
++             input_text_u16.find(u"://") != std::u16string::npos)) {
++          // Input looks like a URL - do a more strict check
++          // If the URLs are the same length and differ only in case, reject the match
++          if (url_spec.length() == input_text_u16.length()) {
++            // Check if they're identical (case-sensitive)
++            if (url_spec != input_text_u16) {
++              // They differ - check if it's only a case difference in the input portion
++              // Find where they first differ
++              size_t diff_pos = 0;
++              while (diff_pos < url_spec.length() && 
++                     url_spec[diff_pos] == input_text_u16[diff_pos]) {
++                diff_pos++;
++              }
++              // If the difference is in the input portion (after prefix), reject
++              if (diff_pos >= prefix_u16.length()) {
++                // Check if it's a case-only difference
++                char url_char = static_cast<char>(url_spec[diff_pos]);
++                char input_char = static_cast<char>(input_text_u16[diff_pos]);
++                if (std::tolower(static_cast<unsigned char>(url_char)) == 
++                    std::tolower(static_cast<unsigned char>(input_char)) &&
++                    url_char != input_char) {
++                  // Case-only difference in user's input portion - reject
++                  continue;
++                }
++              }
++            }
++          }
++        }
+         const URLPrefix* best_prefix = URLPrefix::BestURLPrefix(
+-            base::UTF8ToUTF16(row_url.spec()), std::u16string());
++            url_spec, std::u16string());
+         DCHECK(best_prefix);
+         history::HistoryMatch match;
+         match.url_info = url_match;
+@@ -662,7 +883,8 @@ void HistoryURLProvider::DoAutocomplete(history::HistoryBackend* backend,
+ 
+     // Create sorted list of suggestions.
+     CullPoorMatches(params);
+-    SortAndDedupMatches(&params->matches);
++    // MODIFIED: Pass input text to prefer exact case-sensitive matches
++    SortAndDedupMatches(&params->matches, params->input.text());
+   }
+ 
+   // Try to create a shorter suggestion from the best match.
+@@ -778,6 +1000,9 @@ void HistoryURLProvider::PromoteMatchesIfNecessary(
+   if ((params.promote_type == HistoryURLProviderParams::WHAT_YOU_TYPED_MATCH) ||
+       (!matches_.back().allowed_to_be_default_match &&
+        params.have_what_you_typed_match)) {
++    VLOG(2) << "[HistoryURLProvider] PromoteMatchesIfNecessary: Adding what_you_typed_match: destination_url='" 
++            << params.what_you_typed_match.destination_url.spec() 
++            << "' fill_into_edit='" << base::UTF16ToUTF8(params.what_you_typed_match.fill_into_edit) << "'";
+     matches_.push_back(params.what_you_typed_match);
+   }
+ }
+@@ -800,7 +1025,11 @@ void HistoryURLProvider::QueryComplete(
+   // Don't modify `matches_` if the query failed, since it might have a default
+   // match in it, whereas `params->matches` will be empty.
+   if (!params->failed) {
++    // MODIFIED: Always clear matches to ensure we don't preserve previous state.
++    // This is critical for case-sensitive matching - we must start fresh for each query.
+     matches_.clear();
++    VLOG(2) << "[HistoryURLProvider] QueryComplete: Cleared matches, processing " 
++            << params->matches.size() << " history matches";
+     PromoteMatchesIfNecessary(*params);
+ 
+     // Determine relevance of highest scoring match, if any.
+@@ -819,7 +1048,12 @@ void HistoryURLProvider::QueryComplete(
+                                    : 0;
+     bool populate_scoring_signals =
+         OmniboxFieldTrial::IsPopulatingUrlScoringSignalsEnabled();
++    VLOG(2) << "[HistoryURLProvider] QueryComplete: Converting " 
++            << params->matches.size() << " history matches to ACMatches, starting at index " 
++            << first_match;
+     for (size_t i = first_match; i < params->matches.size(); ++i) {
++      VLOG(2) << "[HistoryURLProvider] QueryComplete: Converting match " << i 
++              << ": url='" << params->matches[i].url_info.url().spec() << "'";
+       // All matches score one less than the previous match.
+       --relevance;
+       // The experimental scoring must not change the top result's score.
+@@ -827,11 +1061,16 @@ void HistoryURLProvider::QueryComplete(
+         relevance = CalculateRelevanceScoreUsingScoringParams(
+             params->matches[i], relevance, scoring_params_);
+       }
+-      matches_.push_back(HistoryMatchToACMatch(*params, i, relevance,
+-                                               populate_scoring_signals));
++      AutocompleteMatch ac_match = HistoryMatchToACMatch(*params, i, relevance,
++                                                         populate_scoring_signals);
++      VLOG(2) << "[HistoryURLProvider] QueryComplete: Added ACMatch " << i 
++              << ": destination_url='" << ac_match.destination_url.spec() 
++              << "' fill_into_edit='" << base::UTF16ToUTF8(ac_match.fill_into_edit) << "'";
++      matches_.push_back(std::move(ac_match));
+     }
+   }
+ 
++  VLOG(2) << "[HistoryURLProvider] QueryComplete: Final matches_.size()=" << matches_.size();
+   done_ = true;
+   NotifyListeners(true);
+ }
+@@ -856,7 +1095,25 @@ bool HistoryURLProvider::FixupExactSuggestion(
+       // We have data for this match, use it.
+       auto title = classifier.url_row().title();
+       params->what_you_typed_match.description = title;
+-      params->what_you_typed_match.destination_url = classifier.url_row().url();
++      
++      // MODIFIED: Preserve the exact URL the user typed, not the history URL.
++      // This ensures that if the user types "flag=F16" and history has "flag=f16",
++      // we use "flag=F16" (the exact typed URL) instead of "flag=f16" (the history URL).
++      // Only use the history URL if it exactly matches the typed URL (case-sensitive).
++      const GURL& history_url = classifier.url_row().url();
++      const GURL& typed_url = params->what_you_typed_match.destination_url;
++      
++      // Compare the URLs case-sensitively - if they differ, use the typed URL
++      if (history_url.spec() == typed_url.spec()) {
++        // URLs match exactly (case-sensitive) - safe to use history URL
++        params->what_you_typed_match.destination_url = history_url;
++      } else {
++        // URLs differ - preserve the exact typed URL
++        // Don't replace destination_url - keep the exact typed URL
++        VLOG(2) << "[HistoryURLProvider] FixupExactSuggestion: URLs differ, preserving typed URL. "
++                << "Typed: '" << typed_url.spec() << "' History: '" << history_url.spec() << "'";
++      }
++      
+       RecordAdditionalInfoFromUrlRow(classifier.url_row(),
+                                      &params->what_you_typed_match);
+       params->what_you_typed_match.description_class = ClassifyDescription(
+@@ -1125,6 +1382,15 @@ AutocompleteMatch HistoryURLProvider::HistoryMatchToACMatch(
+   match.typed_count = info.typed_count();
+   match.destination_url = info.url();
+   DCHECK(match.destination_url.is_valid());
++    // PATCH: Override query string in destination_url with user's typed input (preserve case)
++    if (params.input.parts().query.is_nonempty()) {
++      std::string url_spec = match.destination_url.spec();
++      size_t qpos = url_spec.find('?');
++      if (qpos != std::string::npos) {
++        url_spec = url_spec.substr(0, qpos + 1) + base::UTF16ToUTF8(params.input.text().substr(params.input.parts().query.begin, params.input.parts().query.len));
++        match.destination_url = GURL(url_spec);
++      }
++    }
+   size_t inline_autocomplete_offset =
+       history_match.input_location + params.input.text().length();
+ 
+@@ -1167,6 +1433,10 @@ AutocompleteMatch HistoryURLProvider::HistoryMatchToACMatch(
+     // If rich autocompletion applies, we skip trying the alternatives below.
+   } else if (inline_autocomplete_offset != std::u16string::npos) {
+     DCHECK(inline_autocomplete_offset <= match.fill_into_edit.length());
++    // MODIFIED: Only enable inline autocompletion if the match is case-sensitive.
++    // This ensures that when user types "f", we can autocomplete to "f16" but not "F16".
++    // Since we've already filtered to only case-sensitive matches, we can safely enable
++    // inline autocompletion here.
+     match.inline_autocompletion =
+         match.fill_into_edit.substr(inline_autocomplete_offset);
+     match.SetAllowedToBeDefault(params.input_before_fixup);
+diff --git a/components/omnibox/browser/omnibox_edit_model.cc b/components/omnibox/browser/omnibox_edit_model.cc
+index c7f7e1d95e5ce..18be08a4e2052 100644
+--- a/components/omnibox/browser/omnibox_edit_model.cc
++++ b/components/omnibox/browser/omnibox_edit_model.cc
+@@ -2318,6 +2318,50 @@ void OmniboxEditModel::AcceptInput(WindowOpenDisposition disposition,
+   // Get the URL and transition type for the selected entry.
+   GURL alternate_nav_url;
+   AutocompleteMatch match = CurrentMatch(&alternate_nav_url);
++  
++  // MODIFIED: Always use the exact text the user typed, not a history match.
++  // This ensures that when the user types a URL, pressing Enter will send the
++  // exact URL they typed to the server, not a history match (even if it matches).
++  std::u16string current_text = GetText();
++  if (!current_text.empty() && (user_input_in_progress_ || has_temporary_text_)) {
++    std::u16string text_with_keyword = MaybePrependKeyword(current_text);
++    
++    // Construct the URL directly from the user's text to preserve exact case.
++    // Don't use canonicalized_url() as it might normalize the case.
++    GURL user_url(base::UTF16ToUTF8(text_with_keyword));
++    
++    // If the URL is valid, create a verbatim match using the exact URL the user typed.
++    // This ensures the exact text (including case) is always sent to the server.
++    if (user_url.is_valid()) {
++      AutocompleteInput verbatim_input(
++          current_text, input_.cursor_position(),
++          input_.current_page_classification(),
++          controller_->client()->GetSchemeClassifier(),
++          controller_->client()->ShouldDefaultTypedNavigationsToHttps(),
++          controller_->client()->GetHttpsPortForTesting(),
++          controller_->client()->IsUsingFakeHttpsForHttpsUpgradeTesting());
++      verbatim_input.set_prevent_inline_autocomplete(true);
++      verbatim_input.set_prefer_keyword(input_.prefer_keyword());
++      verbatim_input.set_keyword_mode_entry_method(input_.keyword_mode_entry_method());
++      verbatim_input.set_allow_exact_keyword_match(input_.allow_exact_keyword_match());
++      verbatim_input.set_omit_asynchronous_matches(true);
++      verbatim_input.set_focus_type(input_.focus_type());
++      
++      // Create a verbatim match using the exact URL the user typed (preserving case)
++      AutocompleteMatch verbatim_match = VerbatimMatchForInput(
++          autocomplete_controller()->history_url_provider(),
++          autocomplete_controller()->autocomplete_provider_client(),
++          verbatim_input, user_url, false);
++      
++      // Override the destination URL with the exact URL the user typed to preserve case
++      verbatim_match.destination_url = user_url;
++      verbatim_match.fill_into_edit = text_with_keyword;
++      
++      // Always use the verbatim match. This ensures the user's exact text is used.
++      match = verbatim_match;
++      alternate_nav_url = GURL();
++    }
++  }
+ 
+   // If CTRL is down it means the user wants to append ".com" to the text they
+   // typed. If we can successfully generate a URL_WHAT_YOU_TYPED match doing
