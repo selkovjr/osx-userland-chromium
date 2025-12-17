@@ -2,6 +2,13 @@
 
 ## 2025-11-04
 
+### Fixed: Google Search Queries from Omnibox
+- Fixed regression where Google search queries from the omnibox were not working.
+- The case-sensitive URL matching patch was incorrectly overriding search query matches.
+- Now properly detects search queries and skips the verbatim match override for them.
+- Search queries now work correctly while URL case-sensitivity is still preserved.
+- Patch: `patches/history-case-sensitive.patch` (updated)
+
 ### Omnibox Multi-Click Selection (Combined Patch)
 - Combined double-click and triple-click functionality into single comprehensive patch.
 - Single-click positions caret, double-click selects word, triple-click selects all.

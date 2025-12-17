@@ -706,44 +706,58 @@ index c7f7e1d95e5ce..18be08a4e2052 100644
 +  // MODIFIED: Always use the exact text the user typed, not a history match.
 +  // This ensures that when the user types a URL, pressing Enter will send the
 +  // exact URL they typed to the server, not a history match (even if it matches).
++  // IMPORTANT: Only apply this for URL matches, not for search queries.
++  // Search queries should use the normal search match handling.
 +  std::u16string current_text = GetText();
 +  if (!current_text.empty() && (user_input_in_progress_ || has_temporary_text_)) {
-+    std::u16string text_with_keyword = MaybePrependKeyword(current_text);
++    // Check if the current match is a search query - if so, don't override it
++    bool is_search_query = (match.type == AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED ||
++                            match.type == AutocompleteMatchType::SEARCH_SUGGEST ||
++                            match.type == AutocompleteMatchType::SEARCH_SUGGEST_ENTITY ||
++                            match.type == AutocompleteMatchType::SEARCH_SUGGEST_TAIL ||
++                            match.type == AutocompleteMatchType::SEARCH_SUGGEST_PERSONALIZED ||
++                            match.type == AutocompleteMatchType::SEARCH_SUGGEST_PROFILE ||
++                            input_.type() == metrics::OmniboxInputType::QUERY);
 +    
-+    // Construct the URL directly from the user's text to preserve exact case.
-+    // Don't use canonicalized_url() as it might normalize the case.
-+    GURL user_url(base::UTF16ToUTF8(text_with_keyword));
-+    
-+    // If the URL is valid, create a verbatim match using the exact URL the user typed.
-+    // This ensures the exact text (including case) is always sent to the server.
-+    if (user_url.is_valid()) {
-+      AutocompleteInput verbatim_input(
-+          current_text, input_.cursor_position(),
-+          input_.current_page_classification(),
-+          controller_->client()->GetSchemeClassifier(),
-+          controller_->client()->ShouldDefaultTypedNavigationsToHttps(),
-+          controller_->client()->GetHttpsPortForTesting(),
-+          controller_->client()->IsUsingFakeHttpsForHttpsUpgradeTesting());
-+      verbatim_input.set_prevent_inline_autocomplete(true);
-+      verbatim_input.set_prefer_keyword(input_.prefer_keyword());
-+      verbatim_input.set_keyword_mode_entry_method(input_.keyword_mode_entry_method());
-+      verbatim_input.set_allow_exact_keyword_match(input_.allow_exact_keyword_match());
-+      verbatim_input.set_omit_asynchronous_matches(true);
-+      verbatim_input.set_focus_type(input_.focus_type());
++    // Only apply verbatim match override for URL matches, not search queries
++    if (!is_search_query) {
++      std::u16string text_with_keyword = MaybePrependKeyword(current_text);
 +      
-+      // Create a verbatim match using the exact URL the user typed (preserving case)
-+      AutocompleteMatch verbatim_match = VerbatimMatchForInput(
-+          autocomplete_controller()->history_url_provider(),
-+          autocomplete_controller()->autocomplete_provider_client(),
-+          verbatim_input, user_url, false);
++      // Construct the URL directly from the user's text to preserve exact case.
++      // Don't use canonicalized_url() as it might normalize the case.
++      GURL user_url(base::UTF16ToUTF8(text_with_keyword));
 +      
-+      // Override the destination URL with the exact URL the user typed to preserve case
-+      verbatim_match.destination_url = user_url;
-+      verbatim_match.fill_into_edit = text_with_keyword;
-+      
-+      // Always use the verbatim match. This ensures the user's exact text is used.
-+      match = verbatim_match;
-+      alternate_nav_url = GURL();
++      // If the URL is valid, create a verbatim match using the exact URL the user typed.
++      // This ensures the exact text (including case) is always sent to the server.
++      if (user_url.is_valid()) {
++        AutocompleteInput verbatim_input(
++            current_text, input_.cursor_position(),
++            input_.current_page_classification(),
++            controller_->client()->GetSchemeClassifier(),
++            controller_->client()->ShouldDefaultTypedNavigationsToHttps(),
++            controller_->client()->GetHttpsPortForTesting(),
++            controller_->client()->IsUsingFakeHttpsForHttpsUpgradeTesting());
++        verbatim_input.set_prevent_inline_autocomplete(true);
++        verbatim_input.set_prefer_keyword(input_.prefer_keyword());
++        verbatim_input.set_keyword_mode_entry_method(input_.keyword_mode_entry_method());
++        verbatim_input.set_allow_exact_keyword_match(input_.allow_exact_keyword_match());
++        verbatim_input.set_omit_asynchronous_matches(true);
++        verbatim_input.set_focus_type(input_.focus_type());
++        
++        // Create a verbatim match using the exact URL the user typed (preserving case)
++        AutocompleteMatch verbatim_match = VerbatimMatchForInput(
++            autocomplete_controller()->history_url_provider(),
++            autocomplete_controller()->autocomplete_provider_client(),
++            verbatim_input, user_url, false);
++        
++        // Override the destination URL with the exact URL the user typed to preserve case
++        verbatim_match.destination_url = user_url;
++        verbatim_match.fill_into_edit = text_with_keyword;
++        
++        // Always use the verbatim match. This ensures the user's exact text is used.
++        match = verbatim_match;
++        alternate_nav_url = GURL();
++      }
 +    }
 +  }
  
