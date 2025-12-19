@@ -1,5 +1,19 @@
 # Changelog: Custom Chromium Enterprise Build
 
+## 2025-01-06
+
+### Fixed: Multi-Word Search Queries and Special Characters in Omnibox
+- Fixed issue where omnibox became inactive after entering a space character or starting with special characters (like double quotes) in search queries.
+- Root cause: The case-sensitive URL filtering in `autocomplete_result.cc` was removing ALL matches (including search suggestions) when the input text wasn't found literally in the URL. This broke search queries because:
+  - Spaces are URL-encoded as `%20`
+  - Quotes and other special characters are also URL-encoded
+- Solution: Modified case-sensitive URL filtering to:
+  1. Only apply for URL-like inputs (no spaces, not QUERY type)
+  2. Skip search-type matches using `AutocompleteMatch::IsSearchType()`
+  3. Early return in `HistoryURLProvider` for inputs with spaces
+- This preserves case-sensitive URL matching for history while allowing search queries to work correctly.
+- Patch: `patches/history-case-sensitive.patch` (updated)
+
 ## 2025-11-04
 
 ### Fixed: Google Search Queries from Omnibox
